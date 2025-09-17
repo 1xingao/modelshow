@@ -66,7 +66,7 @@ export default {
             // 创建控制器（优化为360度旋转）
             this.controls = new OrbitControls(this.camera, this.renderer.domElement);
             this.controls.enableDamping = true;
-            this.controls.dampingFactor = 0.1; // 减少阻尼，让操作更灵敏
+            this.controls.dampingFactor = 0.2; // 减少阻尼，让操作更灵敏
             this.controls.screenSpacePanning = false;
             this.controls.minDistance = 1;
             this.controls.maxDistance = 1000;
