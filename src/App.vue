@@ -1,42 +1,23 @@
 <template>
   <div id="app">
     <!-- 头部导航 -->
-    <AppHeader 
-      :active-tab="currentTab"
-      @tab-changed="handleTabChange"
-    />
-    
+    <AppHeader :active-tab="currentTab" @tab-changed="handleTabChange" />
+
     <!-- 主要内容区域 -->
     <div class="main-content">
       <!-- 模型可视化页面 -->
       <div v-show="currentTab === 'model'" class="model-page">
-        <ModelControlPanel
-          :model-loaded="modelLoaded"
-          :loading="loading"
-          :layers="modelLayers"
-          :model-info="modelInfo"
-          @load-model="handleLoadModel"
-          @clear-model="handleClearModel"
-          @reset-camera="handleResetCamera"
-          @find-model="handleFindModel"
-          @toggle-wireframe="handleToggleWireframe"
-          @update-edge-color="handleUpdateEdgeColor"
-          @set-view="handleSetView"
-          @toggle-layer-visibility="handleToggleLayerVisibility"
-          @update-layer-opacity="handleUpdateLayerOpacity"
-        />
-        
+        <ModelControlPanel :model-loaded="modelLoaded" :loading="loading" :layers="modelLayers" :model-info="modelInfo"
+          @load-model="handleLoadModel" @clear-model="handleClearModel" @reset-camera="handleResetCamera"
+          @find-model="handleFindModel" @toggle-wireframe="handleToggleWireframe"
+          @update-edge-color="handleUpdateEdgeColor" @set-view="handleSetView"
+          @toggle-layer-visibility="handleToggleLayerVisibility" @update-layer-opacity="handleUpdateLayerOpacity" />
+
         <div class="viewer-container">
-          <ModelViewer
-            ref="modelViewer"
-            @loading-start="loading = true"
-            @loading-end="loading = false"
-            @loading-progress="handleLoadingProgress"
-            @loading-error="handleLoadingError"
-            @model-loaded="handleModelLoaded"
-            @model-cleared="handleModelCleared"
-          />
-          
+          <ModelViewer ref="modelViewer" @loading-start="loading = true" @loading-end="loading = false"
+            @loading-progress="handleLoadingProgress" @loading-error="handleLoadingError"
+            @model-loaded="handleModelLoaded" @model-cleared="handleModelCleared" />
+
           <!-- 加载状态显示 -->
           <div v-if="loading" class="loading-overlay">
             <div class="loading-content">
@@ -44,7 +25,7 @@
               <p>正在加载模型... {{ loadingProgress }}%</p>
             </div>
           </div>
-          
+
           <!-- 错误提示 -->
           <div v-if="errorMessage" class="error-overlay">
             <div class="error-content">
@@ -55,18 +36,18 @@
           </div>
         </div>
       </div>
-      
+
       <!-- 其他页面（预留） -->
       <div v-show="currentTab === 'upload'" class="page-placeholder">
         <h2>数据上传功能</h2>
         <p>此功能正在开发中...</p>
       </div>
-      
+
       <div v-show="currentTab === 'process'" class="page-placeholder">
         <h2>数据处理功能</h2>
         <p>此功能正在开发中...</p>
       </div>
-      
+
       <div v-show="currentTab === 'settings'" class="page-placeholder">
         <h2>系统设置</h2>
         <p>此功能正在开发中...</p>
@@ -250,7 +231,8 @@ export default {
 }
 
 .main-content {
-  padding-top: 60px; /* header高度 */
+  padding-top: 60px;
+  /* header高度 */
   height: 100vh;
   overflow: hidden;
 }
@@ -315,8 +297,13 @@ export default {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 /* 错误提示覆盖层 */
@@ -371,7 +358,7 @@ export default {
   .model-page {
     flex-direction: column;
   }
-  
+
   .main-content {
     padding-top: 60px;
   }
