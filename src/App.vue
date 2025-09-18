@@ -12,7 +12,8 @@
                     @reset-camera="handleResetCamera" @find-model="handleFindModel"
                     @toggle-wireframe="handleToggleWireframe" @update-edge-color="handleUpdateEdgeColor"
                     @set-view="handleSetView" @toggle-layer-visibility="handleToggleLayerVisibility"
-                    @update-layer-opacity="handleUpdateLayerOpacity" />
+                    @update-layer-opacity="handleUpdateLayerOpacity" @toggle-coordinate-axis="handleToggleCoordinateAxis"
+                    @update-axis-color="handleUpdateAxisColor" />
 
                 <div class="viewer-container">
                     <ModelViewer ref="modelViewer" @loading-start="loading = true" @loading-end="loading = false"
@@ -201,6 +202,25 @@ export default {
             this.modelLayers = data.layers;
             this.modelInfo = data.modelInfo;
             console.log('应用层接收到模型加载完成事件');
+        },
+
+        /**
+         * 处理坐标轴切换
+         */
+        handleToggleCoordinateAxis() {
+            if (this.$refs.modelViewer) {
+                this.$refs.modelViewer.toggleCoordinateAxis();
+            }
+        },
+
+        /**
+         * 处理坐标轴颜色更新
+         * @param {number} color - 新的颜色值
+         */
+        handleUpdateAxisColor(color) {
+            if (this.$refs.modelViewer) {
+                this.$refs.modelViewer.setAxisColor(color);
+            }
         },
 
         /**

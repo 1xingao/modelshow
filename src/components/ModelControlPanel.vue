@@ -35,6 +35,15 @@
                     <label class="color-label">边缘线颜色:</label>
                     <input type="color" v-model="edgeColorHex" @change="updateEdgeColor" class="color-picker" />
                 </div>
+                
+                <label class="checkbox-label">
+                    <input type="checkbox" v-model="showCoordinateAxis" @change="toggleCoordinateAxis" />
+                    显示坐标轴
+                </label>
+                <div v-if="showCoordinateAxis" class="axis-color-control">
+                    <label class="color-label">坐标轴颜色:</label>
+                    <input type="color" v-model="axisColorHex" @change="updateAxisColor" class="color-picker" />
+                </div>
             </div>
         </div>
 
@@ -116,7 +125,9 @@ export default {
     data() {
         return {
             showWireframe: false,
-            edgeColorHex: '#000000' // 默认黑色
+            edgeColorHex: '#000000', // 默认黑色
+            showCoordinateAxis: false,
+            axisColorHex: '#333333' // 默认深灰色
         }
     },
     methods: {
@@ -191,6 +202,21 @@ export default {
                 layerId: layer.id,
                 opacity: parseFloat(layer.opacity)
             });
+        },
+
+        /**
+         * 切换坐标轴显示
+         */
+        toggleCoordinateAxis() {
+            this.$emit('toggle-coordinate-axis');
+        },
+
+        /**
+         * 更新坐标轴颜色
+         */
+        updateAxisColor() {
+            const color = parseInt(this.axisColorHex.slice(1), 16);
+            this.$emit('update-axis-color', color);
         }
     }
 }
@@ -313,7 +339,8 @@ export default {
     transform: scale(1.2);
 }
 
-.edge-color-control {
+.edge-color-control,
+.axis-color-control {
     margin-top: 10px;
     display: flex;
     align-items: center;
@@ -323,6 +350,7 @@ export default {
 .color-label {
     font-size: 12px;
     color: #6c757d;
+    white-space: nowrap;
 }
 
 .color-picker {

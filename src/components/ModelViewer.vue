@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 
 export default {
     name: 'ModelViewer',
@@ -24,7 +25,13 @@ export default {
             axesHelper: null,
             edgeLines: [], // 存储边缘线对象
             edgeColor: 0x000000, // 统一边缘线颜色（黑色）
-            showEdges: false // 控制边缘线显示
+            showEdges: false, // 控制边缘线显示
+            // 坐标轴相关
+            coordinateBox: null, // 坐标轴包围盒
+            coordinateLabels: [], // 坐标轴标签
+            showCoordinateAxis: false, // 控制坐标轴显示
+            axisColor: 0x333333, // 坐标轴颜色
+            labelRenderer: null // 文字渲染器
         }
     },
     mounted() {
@@ -62,6 +69,14 @@ export default {
             this.renderer.setSize(width, height);
             // 不启用阴影，简化渲染
             container.appendChild(this.renderer.domElement);
+
+            // 创建CSS2D渲染器用于坐标轴标签
+            this.labelRenderer = new CSS2DRenderer();
+            this.labelRenderer.setSize(width, height);
+            this.labelRenderer.domElement.style.position = 'absolute';
+            this.labelRenderer.domElement.style.top = '0px';
+            this.labelRenderer.domElement.style.pointerEvents = 'none';
+            container.appendChild(this.labelRenderer.domElement);
 
             // 创建控制器（优化为360度旋转）
             this.controls = new OrbitControls(this.camera, this.renderer.domElement);
@@ -144,6 +159,10 @@ export default {
 
             if (this.renderer && this.scene && this.camera) {
                 this.renderer.render(this.scene, this.camera);
+                // 渲染坐标轴标签
+                if (this.labelRenderer) {
+                    this.labelRenderer.render(this.scene, this.camera);
+                }
             }
         },
 
@@ -443,6 +462,11 @@ export default {
                 near: this.camera.near,
                 far: this.camera.far
             });
+
+            // 如果坐标轴开启，则创建坐标轴
+            if (this.showCoordinateAxis) {
+                this.createCoordinateAxis();
+            }
 
             // 添加延时检查
             setTimeout(() => {
@@ -862,6 +886,172 @@ export default {
             this.camera.updateProjectionMatrix();
 
             this.renderer.setSize(width, height);
+            
+            if (this.labelRenderer) {
+                this.labelRenderer.setSize(width, height);
+            }
+        },
+
+        /**
+         * 创建坐标轴包围盒和标签
+         */
+        createCoordinateAxis() {
+            if (!this.model || !this.boundingBox) {
+                console.warn('无法创建坐标轴：模型或包围盒不存在');
+                return;
+            }
+
+            this.clearCoordinateAxis();
+
+            const box = this.boundingBox;
+            const min = box.min;
+            const max = box.max;
+            const size = box.getSize(new THREE.Vector3());
+
+            // 创建包围盒线框
+            const boxGeometry = new THREE.BoxGeometry(size.x, size.y, size.z);
+            const boxEdges = new THREE.EdgesGeometry(boxGeometry);
+            const boxMaterial = new THREE.LineBasicMaterial({ 
+                color: this.axisColor,
+                transparent: true,
+                opacity: 0.8
+            });
+
+            this.coordinateBox = new THREE.LineSegments(boxEdges, boxMaterial);
+            this.coordinateBox.position.copy(box.getCenter(new THREE.Vector3()));
+            this.scene.add(this.coordinateBox);
+
+            // 创建坐标标签
+            this.createAxisLabels(min, max, size);
+        },
+
+        /**
+         * 创建坐标轴标签
+         */
+        createAxisLabels(min, max, size) {
+            // 计算合适的刻度间隔
+            const getTickInterval = (dimension) => {
+                const magnitude = Math.floor(Math.log10(dimension));
+                const normalized = dimension / Math.pow(10, magnitude);
+                
+                let interval;
+                if (normalized <= 2) interval = 0.5;
+                else if (normalized <= 5) interval = 1;
+                else interval = 2;
+                
+                return interval * Math.pow(10, magnitude);
+            };
+
+            const xInterval = getTickInterval(size.x);
+            const yInterval = getTickInterval(size.y);
+            const zInterval = getTickInterval(size.z);
+
+            // X轴标签 (沿着底部前边)
+            this.createAxisTickLabels('x', min.x, max.x, xInterval, min.y, min.z);
+            
+            // Y轴标签 (沿着左侧前边)
+            this.createAxisTickLabels('y', min.y, max.y, yInterval, min.x, min.z);
+            
+            // Z轴标签 (沿着左侧底边)
+            this.createAxisTickLabels('z', min.z, max.z, zInterval, min.x, min.y);
+        },
+
+        /**
+         * 创建单个轴的刻度标签
+         */
+        createAxisTickLabels(axis, minValue, maxValue, interval, fixedCoord1, fixedCoord2) {
+            const start = Math.ceil(minValue / interval) * interval;
+            const end = Math.floor(maxValue / interval) * interval;
+
+            for (let value = start; value <= end; value += interval) {
+                // 避免浮点数精度问题
+                const roundedValue = Math.round(value / interval) * interval;
+                
+                const labelDiv = document.createElement('div');
+                labelDiv.className = 'coordinate-label';
+                labelDiv.textContent = roundedValue.toFixed(2);
+                labelDiv.style.color = `#${this.axisColor.toString(16).padStart(6, '0')}`;
+                labelDiv.style.fontSize = '12px';
+                labelDiv.style.fontFamily = 'Arial, sans-serif';
+                labelDiv.style.padding = '2px 4px';
+                labelDiv.style.backgroundColor = 'rgba(0,0,0, 0)';
+                labelDiv.style.borderRadius = '3px';
+                labelDiv.style.pointerEvents = 'none';
+
+                const label = new CSS2DObject(labelDiv);
+
+                // 根据轴设置位置
+                switch (axis) {
+                    case 'x':
+                        label.position.set(roundedValue, fixedCoord1, fixedCoord2);
+                        break;
+                    case 'y':
+                        label.position.set(fixedCoord1, roundedValue, fixedCoord2);
+                        break;
+                    case 'z':
+                        label.position.set(fixedCoord1, fixedCoord2, roundedValue);
+                        break;
+                }
+
+                this.coordinateLabels.push(label);
+                this.scene.add(label);
+            }
+        },
+
+        /**
+         * 切换坐标轴显示
+         */
+        toggleCoordinateAxis() {
+            this.showCoordinateAxis = !this.showCoordinateAxis;
+            
+            if (this.showCoordinateAxis) {
+                this.createCoordinateAxis();
+            } else {
+                this.clearCoordinateAxis();
+            }
+
+            this.$emit('coordinate-axis-changed', this.showCoordinateAxis);
+        },
+
+        /**
+         * 设置坐标轴颜色
+         */
+        setAxisColor(color) {
+            this.axisColor = color;
+            
+            // 更新现有坐标轴颜色
+            if (this.coordinateBox && this.coordinateBox.material) {
+                this.coordinateBox.material.color.setHex(color);
+            }
+
+            // 更新标签颜色
+            this.coordinateLabels.forEach(label => {
+                if (label.element) {
+                    label.element.style.color = `#${color.toString(16).padStart(6, '0')}`;
+                }
+            });
+        },
+
+        /**
+         * 清除坐标轴
+         */
+        clearCoordinateAxis() {
+            // 清除包围盒
+            if (this.coordinateBox) {
+                this.scene.remove(this.coordinateBox);
+                this.coordinateBox.geometry.dispose();
+                this.coordinateBox.material.dispose();
+                this.coordinateBox = null;
+            }
+
+            // 清除标签
+            this.coordinateLabels.forEach(label => {
+                this.scene.remove(label);
+                if (label.element && label.element.parentNode) {
+                    label.element.parentNode.removeChild(label.element);
+                }
+            });
+            this.coordinateLabels = [];
         },
 
         /**
@@ -872,9 +1062,15 @@ export default {
                 this.renderer.dispose();
             }
 
+            if (this.labelRenderer && this.labelRenderer.domElement && this.labelRenderer.domElement.parentNode) {
+                this.labelRenderer.domElement.parentNode.removeChild(this.labelRenderer.domElement);
+            }
+
             if (this.model) {
                 this.clearModel();
             }
+
+            this.clearCoordinateAxis();
 
             // 清理几何体和材质
             this.originalMaterials.forEach(material => material.dispose());
@@ -896,5 +1092,25 @@ export default {
     display: block;
     width: 100% !important;
     height: 100% !important;
+}
+</style>
+
+<style>
+/* 坐标轴标签样式 - 不使用 scoped，因为这些是动态创建的 DOM 元素 */
+.coordinate-label {
+    font-family: Arial, sans-serif;
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+    white-space: nowrap;
+    user-select: none;
+    text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.coordinate-label:hover {
+    transform: scale(1.1);
+    transition: transform 0.2s ease;
 }
 </style>
