@@ -104,66 +104,98 @@
 <script>
 export default {
     name: 'ModelControlPanel',
-    props: {
-        modelLoaded: {
-            type: Boolean,
-            default: false
-        },
-        loading: {
-            type: Boolean,
-            default: false
-        },
-        layers: {
-            type: Array,
-            default: () => []
-        },
-        modelInfo: {
-            type: Object,
-            default: null
-        }
-    },
     data() {
         return {
             showWireframe: false,
             edgeColorHex: '#000000', // 默认黑色
             showCoordinateAxis: false,
-            axisColorHex: '#333333' // 默认深灰色
+            axisColorHex: '#333333', // 默认深灰色
+            // 将 props 转为内部状态管理
+            modelLoaded: false,
+            loading: false,
+            layers: [],
+            modelInfo: null
         }
     },
+    mounted() {
+        // 监听模型状态变化事件
+        this.$eventBus.$on('model-loaded', this.onModelLoaded);
+        this.$eventBus.$on('model-cleared', this.onModelCleared);
+        this.$eventBus.$on('loading-start', this.onLoadingStart);
+        this.$eventBus.$on('loading-end', this.onLoadingEnd);
+    },
+    beforeDestroy() {
+        // 清理事件监听器
+        this.$eventBus.$off('model-loaded', this.onModelLoaded);
+        this.$eventBus.$off('model-cleared', this.onModelCleared);
+        this.$eventBus.$off('loading-start', this.onLoadingStart);
+        this.$eventBus.$off('loading-end', this.onLoadingEnd);
+    },
     methods: {
+        /**
+         * 处理模型加载完成事件
+         */
+        onModelLoaded(data) {
+            this.modelLoaded = true;
+            this.layers = data.layers || [];
+            this.modelInfo = data.modelInfo || null;
+        },
+
+        /**
+         * 处理模型清除事件
+         */
+        onModelCleared() {
+            this.modelLoaded = false;
+            this.layers = [];
+            this.modelInfo = null;
+        },
+
+        /**
+         * 处理加载开始事件
+         */
+        onLoadingStart() {
+            this.loading = true;
+        },
+
+        /**
+         * 处理加载结束事件
+         */
+        onLoadingEnd() {
+            this.loading = false;
+        },
         /**
          * 加载模型
          */
         loadModel() {
-            this.$emit('load-model');
+            this.$eventBus.$emit('load-model');
         },
 
         /**
          * 清除模型
          */
         clearModel() {
-            this.$emit('clear-model');
+            this.$eventBus.$emit('clear-model');
         },
 
         /**
          * 重置相机位置
          */
         resetCamera() {
-            this.$emit('reset-camera');
+            this.$eventBus.$emit('reset-camera');
         },
 
         /**
          * 查找模型
          */
         findModel() {
-            this.$emit('find-model');
+            this.$eventBus.$emit('find-model');
         },
 
         /**
          * 切换边缘线显示
          */
         toggleWireframe() {
-            this.$emit('toggle-wireframe', this.showWireframe);
+            this.$eventBus.$emit('toggle-wireframe', this.showWireframe);
         },
 
         /**
@@ -171,7 +203,7 @@ export default {
          */
         updateEdgeColor() {
             const colorValue = parseInt(this.edgeColorHex.replace('#', ''), 16);
-            this.$emit('update-edge-color', colorValue);
+            this.$eventBus.$emit('update-edge-color', colorValue);
         },
 
         /**
@@ -179,7 +211,7 @@ export default {
          * @param {string} viewType - 视角类型 (front, back, left, right, top, bottom)
          */
         setView(viewType) {
-            this.$emit('set-view', viewType);
+            this.$eventBus.$emit('set-view', viewType);
         },
 
         /**
@@ -187,7 +219,7 @@ export default {
          * @param {Object} layer - 地层对象
          */
         toggleLayerVisibility(layer) {
-            this.$emit('toggle-layer-visibility', {
+            this.$eventBus.$emit('toggle-layer-visibility', {
                 layerId: layer.id,
                 visible: layer.visible
             });
@@ -198,7 +230,7 @@ export default {
          * @param {Object} layer - 地层对象
          */
         updateLayerOpacity(layer) {
-            this.$emit('update-layer-opacity', {
+            this.$eventBus.$emit('update-layer-opacity', {
                 layerId: layer.id,
                 opacity: parseFloat(layer.opacity)
             });
@@ -208,7 +240,7 @@ export default {
          * 切换坐标轴显示
          */
         toggleCoordinateAxis() {
-            this.$emit('toggle-coordinate-axis');
+            this.$eventBus.$emit('toggle-coordinate-axis');
         },
 
         /**
@@ -216,7 +248,7 @@ export default {
          */
         updateAxisColor() {
             const color = parseInt(this.axisColorHex.slice(1), 16);
-            this.$emit('update-axis-color', color);
+            this.$eventBus.$emit('update-axis-color', color);
         }
     }
 }

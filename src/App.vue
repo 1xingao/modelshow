@@ -7,18 +7,10 @@
         <div class="main-content">
             <!-- 模型可视化页面 -->
             <div v-show="currentTab === 'model'" class="model-page">
-                <ModelControlPanel :model-loaded="modelLoaded" :loading="loading" :layers="modelLayers"
-                    :model-info="modelInfo" @load-model="handleLoadModel" @clear-model="handleClearModel"
-                    @reset-camera="handleResetCamera" @find-model="handleFindModel"
-                    @toggle-wireframe="handleToggleWireframe" @update-edge-color="handleUpdateEdgeColor"
-                    @set-view="handleSetView" @toggle-layer-visibility="handleToggleLayerVisibility"
-                    @update-layer-opacity="handleUpdateLayerOpacity" @toggle-coordinate-axis="handleToggleCoordinateAxis"
-                    @update-axis-color="handleUpdateAxisColor" />
+                <ModelControlPanel />
 
                 <div class="viewer-container">
-                    <ModelViewer ref="modelViewer" @loading-start="loading = true" @loading-end="loading = false"
-                        @loading-progress="handleLoadingProgress" @loading-error="handleLoadingError"
-                        @model-loaded="handleModelLoaded" @model-cleared="handleModelCleared" />
+                    <ModelViewer ref="modelViewer" />
 
                     <!-- 加载状态显示 -->
                     <div v-if="loading" class="loading-overlay">
@@ -73,13 +65,24 @@ export default {
     data() {
         return {
             currentTab: 'model',
-            modelLoaded: false,
             loading: false,
             loadingProgress: 0,
-            errorMessage: '',
-            modelLayers: [],
-            modelInfo: null
+            errorMessage: ''
         }
+    },
+    mounted() {
+        // 监听全局事件
+        this.$eventBus.$on('loading-start', this.onLoadingStart);
+        this.$eventBus.$on('loading-end', this.onLoadingEnd);
+        this.$eventBus.$on('loading-progress', this.onLoadingProgress);
+        this.$eventBus.$on('loading-error', this.onLoadingError);
+    },
+    beforeDestroy() {
+        // 清理事件监听器
+        this.$eventBus.$off('loading-start', this.onLoadingStart);
+        this.$eventBus.$off('loading-end', this.onLoadingEnd);
+        this.$eventBus.$off('loading-progress', this.onLoadingProgress);
+        this.$eventBus.$off('loading-error', this.onLoadingError);
     },
     methods: {
         /**
@@ -91,146 +94,32 @@ export default {
         },
 
         /**
-         * 处理模型加载请求
+         * 处理加载开始事件
          */
-        handleLoadModel() {
-            if (this.$refs.modelViewer) {
-                this.$refs.modelViewer.loadModel();
-            }
+        onLoadingStart() {
+            this.loading = true;
         },
 
         /**
-         * 处理模型清除请求
+         * 处理加载结束事件
          */
-        handleClearModel() {
-            if (this.$refs.modelViewer) {
-                this.$refs.modelViewer.clearModel();
-            }
-        },
-
-        /**
-         * 处理相机重置请求
-         */
-        handleResetCamera() {
-            if (this.$refs.modelViewer) {
-                this.$refs.modelViewer.resetCamera();
-            }
-        },
-
-        /**
-         * 处理查找模型请求
-         */
-        handleFindModel() {
-            if (this.$refs.modelViewer) {
-                this.$refs.modelViewer.findModel();
-            }
-        },
-
-        /**
-         * 处理边缘线切换
-         * @param {boolean} show - 是否显示边缘线
-         */
-        handleToggleWireframe(show) {
-            if (this.$refs.modelViewer) {
-                this.$refs.modelViewer.toggleWireframe(show);
-            }
-        },
-
-        /**
-         * 处理边缘线颜色更新
-         * @param {number} color - 新的颜色值
-         */
-        handleUpdateEdgeColor(color) {
-            if (this.$refs.modelViewer) {
-                this.$refs.modelViewer.setEdgeColor(color);
-            }
-        },
-
-        /**
-         * 处理视角设置
-         * @param {string} viewType - 视角类型
-         */
-        handleSetView(viewType) {
-            if (this.$refs.modelViewer) {
-                this.$refs.modelViewer.setView(viewType);
-            }
-        },
-
-        /**
-         * 处理地层可见性切换
-         * @param {Object} data - 包含layerId和visible的对象
-         */
-        handleToggleLayerVisibility(data) {
-            if (this.$refs.modelViewer) {
-                this.$refs.modelViewer.toggleLayerVisibility(data.layerId, data.visible);
-            }
-        },
-
-        /**
-         * 处理地层透明度更新
-         * @param {Object} data - 包含layerId和opacity的对象
-         */
-        handleUpdateLayerOpacity(data) {
-            if (this.$refs.modelViewer) {
-                this.$refs.modelViewer.updateLayerOpacity(data.layerId, data.opacity);
-            }
-        },
-
-        /**
-         * 处理加载进度更新
-         * @param {number} progress - 加载进度百分比
-         */
-        handleLoadingProgress(progress) {
-            this.loadingProgress = Math.round(progress);
-        },
-
-        /**
-         * 处理加载错误
-         * @param {string} errorMsg - 错误信息
-         */
-        handleLoadingError(errorMsg) {
-            this.errorMessage = errorMsg;
+        onLoadingEnd() {
             this.loading = false;
         },
 
         /**
-         * 处理模型加载完成
-         * @param {Object} data - 包含layers和modelInfo的对象
+         * 处理加载进度事件
          */
-        handleModelLoaded(data) {
-            this.modelLoaded = true;
-            this.modelLayers = data.layers;
-            this.modelInfo = data.modelInfo;
-            console.log('应用层接收到模型加载完成事件');
+        onLoadingProgress(progress) {
+            this.loadingProgress = Math.round(progress);
         },
 
         /**
-         * 处理坐标轴切换
+         * 处理加载错误事件
          */
-        handleToggleCoordinateAxis() {
-            if (this.$refs.modelViewer) {
-                this.$refs.modelViewer.toggleCoordinateAxis();
-            }
-        },
-
-        /**
-         * 处理坐标轴颜色更新
-         * @param {number} color - 新的颜色值
-         */
-        handleUpdateAxisColor(color) {
-            if (this.$refs.modelViewer) {
-                this.$refs.modelViewer.setAxisColor(color);
-            }
-        },
-
-        /**
-         * 处理模型清除完成
-         */
-        handleModelCleared() {
-            this.modelLoaded = false;
-            this.modelLayers = [];
-            this.modelInfo = null;
-            console.log('应用层接收到模型清除完成事件');
+        onLoadingError(errorMsg) {
+            this.errorMessage = errorMsg;
+            this.loading = false;
         }
     }
 }

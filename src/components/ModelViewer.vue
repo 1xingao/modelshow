@@ -38,12 +38,39 @@ export default {
         this.initThreeJS();
         this.animate();
         window.addEventListener('resize', this.handleResize);
+        
+        // 监听来自控制面板的事件
+        this.$eventBus.$on('load-model', this.loadModel);
+        this.$eventBus.$on('clear-model', this.clearModel);
+        this.$eventBus.$on('reset-camera', this.resetCamera);
+        this.$eventBus.$on('find-model', this.findModel);
+        this.$eventBus.$on('toggle-wireframe', this.toggleWireframe);
+        this.$eventBus.$on('update-edge-color', this.setEdgeColor);
+        this.$eventBus.$on('set-view', this.setView);
+        this.$eventBus.$on('toggle-layer-visibility', this.handleToggleLayerVisibility);
+        this.$eventBus.$on('update-layer-opacity', this.handleUpdateLayerOpacity);
+        this.$eventBus.$on('toggle-coordinate-axis', this.toggleCoordinateAxis);
+        this.$eventBus.$on('update-axis-color', this.setAxisColor);
     },
     beforeDestroy() {
         window.removeEventListener('resize', this.handleResize);
         if (this.animationId) {
             cancelAnimationFrame(this.animationId);
         }
+        
+        // 清理事件监听器
+        this.$eventBus.$off('load-model', this.loadModel);
+        this.$eventBus.$off('clear-model', this.clearModel);
+        this.$eventBus.$off('reset-camera', this.resetCamera);
+        this.$eventBus.$off('find-model', this.findModel);
+        this.$eventBus.$off('toggle-wireframe', this.toggleWireframe);
+        this.$eventBus.$off('update-edge-color', this.setEdgeColor);
+        this.$eventBus.$off('set-view', this.setView);
+        this.$eventBus.$off('toggle-layer-visibility', this.handleToggleLayerVisibility);
+        this.$eventBus.$off('update-layer-opacity', this.handleUpdateLayerOpacity);
+        this.$eventBus.$off('toggle-coordinate-axis', this.toggleCoordinateAxis);
+        this.$eventBus.$off('update-axis-color', this.setAxisColor);
+        
         this.cleanup();
     },
     methods: {
@@ -172,7 +199,7 @@ export default {
          */
         async loadModel(modelPath = './model_gltf/output_model.gltf') {
             try {
-                this.$emit('loading-start');
+                this.$eventBus.$emit('loading-start');
 
                 const loader = new GLTFLoader();
                 const gltf = await this.loadGLTF(loader, modelPath);
@@ -277,7 +304,7 @@ export default {
                 // 计算模型信息
                 const modelInfo = this.calculateModelInfo();
 
-                this.$emit('model-loaded', {
+                this.$eventBus.$emit('model-loaded', {
                     layers: this.modelLayers,
                     modelInfo: modelInfo
                 });
@@ -289,9 +316,9 @@ export default {
             } catch (error) {
                 console.error('模型加载失败:', error);
                 console.error('错误详情:', error);
-                this.$emit('loading-error', `模型加载失败: ${error.message}`);
+                this.$eventBus.$emit('loading-error', `模型加载失败: ${error.message}`);
             } finally {
-                this.$emit('loading-end');
+                this.$eventBus.$emit('loading-end');
             }
         },
 
@@ -313,7 +340,7 @@ export default {
                     (progress) => {
                         const percent = progress.total > 0 ? (progress.loaded / progress.total) * 100 : 0;
                         console.log('加载进度:', percent + '%', progress);
-                        this.$emit('loading-progress', percent);
+                        this.$eventBus.$emit('loading-progress', percent);
                     },
                     (error) => {
                         console.error('GLTF加载错误:', error);
@@ -620,7 +647,7 @@ export default {
                 // 重新添加测试立方体
                 this.addTestCube();
 
-                this.$emit('model-cleared');
+                this.$eventBus.$emit('model-cleared');
             }
         },
 
@@ -1010,7 +1037,7 @@ export default {
                 this.clearCoordinateAxis();
             }
 
-            this.$emit('coordinate-axis-changed', this.showCoordinateAxis);
+            this.$eventBus.$emit('coordinate-axis-changed', this.showCoordinateAxis);
         },
 
         /**
@@ -1052,6 +1079,20 @@ export default {
                 }
             });
             this.coordinateLabels = [];
+        },
+
+        /**
+         * 处理地层可见性切换事件
+         */
+        handleToggleLayerVisibility(data) {
+            this.toggleLayerVisibility(data.layerId, data.visible);
+        },
+
+        /**
+         * 处理地层透明度更新事件
+         */
+        handleUpdateLayerOpacity(data) {
+            this.updateLayerOpacity(data.layerId, data.opacity);
         },
 
         /**
