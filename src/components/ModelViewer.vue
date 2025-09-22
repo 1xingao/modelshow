@@ -146,11 +146,11 @@ export default {
             this.setupLights();
 
             // 添加坐标轴辅助器
-            this.axesHelper = new THREE.AxesHelper(100);
+            this.axesHelper = new THREE.AxesHelper(3000);
             this.scene.add(this.axesHelper);
 
             // 添加网格辅助器
-            this.gridHelper = new THREE.GridHelper(20, 20, 0xdddddd, 0xf0f0f0);
+            this.gridHelper = new THREE.GridHelper(2000, 100, 0xdddddd, 0xf0f0f0);
             this.scene.add(this.gridHelper);
 
             // 初始化剖面功能
