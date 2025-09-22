@@ -31,6 +31,9 @@
                 </div>
             </div>
 
+            <!-- 剖面模态窗口 -->
+            <SectionModal />
+
             <!-- 其他页面（预留） -->
             <div v-show="currentTab === 'upload'" class="page-placeholder">
                 <h2>数据上传功能</h2>
@@ -54,13 +57,15 @@
 import AppHeader from './components/AppHeader.vue'
 import ModelControlPanel from './components/ModelControlPanel.vue'
 import ModelViewer from './components/ModelViewer.vue'
+import SectionModal from './components/SectionModal.vue'
 
 export default {
     name: 'App',
     components: {
         AppHeader,
         ModelControlPanel,
-        ModelViewer
+        ModelViewer,
+        SectionModal
     },
     data() {
         return {

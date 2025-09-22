@@ -7,6 +7,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
 
 export default {
     name: 'ModelViewer',
@@ -23,6 +24,7 @@ export default {
             boundingBox: null,
             animationId: null,
             axesHelper: null,
+            gridHelper: null, // 网格辅助器
             edgeLines: [], // 存储边缘线对象
             edgeColor: 0x000000, // 统一边缘线颜色（黑色）
             showEdges: false, // 控制边缘线显示
@@ -31,7 +33,16 @@ export default {
             coordinateLabels: [], // 坐标轴标签
             showCoordinateAxis: false, // 控制坐标轴显示
             axisColor: 0x333333, // 坐标轴颜色
-            labelRenderer: null // 文字渲染器
+            labelRenderer: null, // 文字渲染器
+            // 剖面相关
+            clippingPlanes: [], // 裁剪平面数组
+            clippingPlane: null, // 当前裁剪平面
+            clippingHelper: null, // 裁剪平面可视化助手
+            transformControls: null, // 变换控制器
+            showClipping: false, // 控制剖面显示
+            controlTarget: 'model', // 控制目标：'model'（模型）或 'plane'（剖面平面）
+            sectionGeometry: null, // 生成的剖面几何
+            sectionLines: [] // 剖面线条
         }
     },
     mounted() {
@@ -43,7 +54,6 @@ export default {
         this.$eventBus.$on('load-model', this.loadModel);
         this.$eventBus.$on('clear-model', this.clearModel);
         this.$eventBus.$on('reset-camera', this.resetCamera);
-        this.$eventBus.$on('find-model', this.findModel);
         this.$eventBus.$on('toggle-wireframe', this.toggleWireframe);
         this.$eventBus.$on('update-edge-color', this.setEdgeColor);
         this.$eventBus.$on('set-view', this.setView);
@@ -51,6 +61,13 @@ export default {
         this.$eventBus.$on('update-layer-opacity', this.handleUpdateLayerOpacity);
         this.$eventBus.$on('toggle-coordinate-axis', this.toggleCoordinateAxis);
         this.$eventBus.$on('update-axis-color', this.setAxisColor);
+        // 剖面相关事件
+        this.$eventBus.$on('toggle-clipping', this.toggleClipping);
+        this.$eventBus.$on('align-clipping-plane', this.alignClippingPlane);
+        this.$eventBus.$on('set-transform-mode', this.setTransformMode);
+        this.$eventBus.$on('set-control-target', this.setControlTarget);
+        this.$eventBus.$on('generate-section', this.generateSection);
+        this.$eventBus.$on('export-section', this.exportSection);
     },
     beforeDestroy() {
         window.removeEventListener('resize', this.handleResize);
@@ -62,7 +79,6 @@ export default {
         this.$eventBus.$off('load-model', this.loadModel);
         this.$eventBus.$off('clear-model', this.clearModel);
         this.$eventBus.$off('reset-camera', this.resetCamera);
-        this.$eventBus.$off('find-model', this.findModel);
         this.$eventBus.$off('toggle-wireframe', this.toggleWireframe);
         this.$eventBus.$off('update-edge-color', this.setEdgeColor);
         this.$eventBus.$off('set-view', this.setView);
@@ -70,6 +86,13 @@ export default {
         this.$eventBus.$off('update-layer-opacity', this.handleUpdateLayerOpacity);
         this.$eventBus.$off('toggle-coordinate-axis', this.toggleCoordinateAxis);
         this.$eventBus.$off('update-axis-color', this.setAxisColor);
+        // 清理剖面相关事件
+        this.$eventBus.$off('toggle-clipping', this.toggleClipping);
+        this.$eventBus.$off('align-clipping-plane', this.alignClippingPlane);
+        this.$eventBus.$off('set-transform-mode', this.setTransformMode);
+        this.$eventBus.$off('set-control-target', this.setControlTarget);
+        this.$eventBus.$off('generate-section', this.generateSection);
+        this.$eventBus.$off('export-section', this.exportSection);
         
         this.cleanup();
     },
@@ -82,15 +105,15 @@ export default {
             const width = container.clientWidth;
             const height = container.clientHeight;
 
-            // 创建场景（参照备份文件）
+            // 创建场景
             this.scene = new THREE.Scene();
             this.scene.background = new THREE.Color(0xfafafa);
 
-            // 创建相机（参照备份文件的初始设置）
+            // 创建相机
             this.camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
             this.camera.position.set(10, 10, 10);
 
-            // 创建渲染器（参照备份文件 - 添加对数深度缓冲）
+            // 创建渲染器（添加对数深度缓冲）
             this.renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
             this.renderer.setClearColor(0xfafafa);
             this.renderer.setSize(width, height);
@@ -122,13 +145,16 @@ export default {
             // 添加光源
             this.setupLights();
 
-            // 添加坐标轴辅助器（参照备份文件）
+            // 添加坐标轴辅助器
             this.axesHelper = new THREE.AxesHelper(100);
             this.scene.add(this.axesHelper);
 
-            // 添加网格辅助器（参照备份文件 - 更淡的颜色）
-            const gridHelper = new THREE.GridHelper(20, 20, 0xdddddd, 0xf0f0f0);
-            this.scene.add(gridHelper);
+            // 添加网格辅助器
+            this.gridHelper = new THREE.GridHelper(20, 20, 0xdddddd, 0xf0f0f0);
+            this.scene.add(this.gridHelper);
+
+            // 初始化剖面功能
+            this.initClippingPlane();
 
             // 添加测试立方体来验证渲染
             this.addTestCube();
@@ -309,8 +335,15 @@ export default {
                     modelInfo: modelInfo
                 });
 
-                // 移除测试立方体
+                // 如果剖切平面已存在，更新其尺寸
+                if (this.clippingHelper) {
+                    this.updateClippingHelperSize();
+                }
+
+                // 移除测试立方体、初始坐标轴、初始网格
                 this.removeTestCube();
+                this.axesHelper.visible = false;
+                this.gridHelper.visible = false;
 
                 console.log('模型加载成功，共有', this.modelLayers.length, '个地层');
             } catch (error) {
@@ -532,79 +565,6 @@ export default {
                 console.warn('没有可见的网格！模型可能存在问题。');
             }
         },
-
-        /**
-         * 查找并定位到模型
-         */
-        findModel() {
-            if (!this.model) {
-                console.log('没有模型需要查找');
-                return;
-            }
-
-            console.log('开始查找模型...');
-
-            // 获取模型的包围盒
-            const box = new THREE.Box3().setFromObject(this.model);
-            const size = box.getSize(new THREE.Vector3());
-            const center = box.getCenter(new THREE.Vector3());
-
-            console.log('查找模型信息:', {
-                center: center,
-                size: size,
-                min: box.min,
-                max: box.max
-            });
-
-            if (box.isEmpty()) {
-                console.warn('模型包围盒为空');
-                return;
-            }
-
-            // 使用更保守的距离设置
-            const maxDimension = Math.max(size.x, size.y, size.z);
-            const distance = maxDimension > 0 ? maxDimension * 5 : 50;
-
-            // 尝试不同的相机位置来查找模型
-            const positions = [
-                // 前上右
-                { x: center.x + distance, y: center.y + distance, z: center.z + distance },
-                // 后上左  
-                { x: center.x - distance, y: center.y + distance, z: center.z - distance },
-                // 正上方
-                { x: center.x, y: center.y + distance * 2, z: center.z },
-                // 正前方
-                { x: center.x, y: center.y, z: center.z + distance * 2 },
-                // 侧面
-                { x: center.x + distance * 2, y: center.y, z: center.z }
-            ];
-
-            let currentIndex = 0;
-
-            const tryNextPosition = () => {
-                if (currentIndex >= positions.length) {
-                    console.log('已尝试所有位置');
-                    return;
-                }
-
-                const pos = positions[currentIndex];
-                this.camera.position.set(pos.x, pos.y, pos.z);
-                this.camera.lookAt(center);
-                this.controls.target.copy(center);
-                this.controls.update();
-
-                console.log(`尝试位置 ${currentIndex + 1}: `, pos);
-                currentIndex++;
-
-                // 每2秒切换到下一个位置
-                if (currentIndex < positions.length) {
-                    setTimeout(tryNextPosition, 2000);
-                }
-            };
-
-            tryNextPosition();
-        },
-
         /**
          * 清除模型
          */
@@ -1096,6 +1056,1049 @@ export default {
         },
 
         /**
+         * 初始化裁剪平面
+         */
+        initClippingPlane() {
+            // 创建裁剪平面 (初始位置在模型中心，法线朝上)
+            this.clippingPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+            this.clippingPlanes = [this.clippingPlane];
+
+            // 创建平面助手 (可视化裁剪平面)
+            this.createClippingHelper();
+
+            // 创建变换控制器
+            this.createTransformControls();
+            
+            console.log('裁剪平面系统初始化完成');
+        },
+
+        /**
+         * 创建裁剪平面可视化助手
+         */
+        createClippingHelper() {
+            // 根据包围盒计算合适的平面尺寸
+            let planeSize = 100; // 默认尺寸
+            if (this.model) {
+                const box = new THREE.Box3().setFromObject(this.model);
+                const size = box.getSize(new THREE.Vector3());
+                const maxDimension = Math.max(size.x, size.y, size.z);
+                planeSize = maxDimension * 1.5; // 平面尺寸为模型最大尺寸的1.5倍
+                console.log(`剖切平面尺寸设置为: ${planeSize.toFixed(2)}`);
+            } else if (this.boundingBox) {
+                const size = this.boundingBox.getSize(new THREE.Vector3());
+                const maxDimension = Math.max(size.x, size.y, size.z);
+                planeSize = maxDimension * 1.5;
+                console.log(`从boundingBox设置剖切平面尺寸为: ${planeSize.toFixed(2)}`);
+            }
+
+            const geometry = new THREE.PlaneGeometry(planeSize, planeSize);
+            const material = new THREE.MeshBasicMaterial({
+                color: 0xff9800,
+                transparent: true,
+                opacity: 0.3,
+                side: THREE.DoubleSide,
+                wireframe: false
+            });
+
+            this.clippingHelper = new THREE.Mesh(geometry, material);
+            this.clippingHelper.name = 'clippingHelper';
+            this.clippingHelper.visible = false;
+            this.scene.add(this.clippingHelper);
+
+            // 更新助手位置以匹配裁剪平面
+            this.updateClippingHelperFromPlane();
+        },
+
+        /**
+         * 更新裁剪平面尺寸
+         */
+        updateClippingHelperSize() {
+            if (!this.clippingHelper || !this.model) return;
+
+            const box = new THREE.Box3().setFromObject(this.model);
+            const size = box.getSize(new THREE.Vector3());
+            const maxDimension = Math.max(size.x, size.y, size.z);
+            const planeSize = maxDimension * 1.5;
+
+            // 更新几何体尺寸
+            this.clippingHelper.geometry.dispose();
+            this.clippingHelper.geometry = new THREE.PlaneGeometry(planeSize, planeSize);
+
+            console.log(`更新剖切平面尺寸为: ${planeSize.toFixed(2)}`);
+            
+            // 同时调整位置确保可见
+            this.adjustClippingHelperPosition();
+        },
+
+        /**
+         * 调整剖切平面位置，确保在模型外部可见
+         */
+        adjustClippingHelperPosition() {
+            if (!this.clippingHelper || !this.model) return;
+
+            const box = new THREE.Box3().setFromObject(this.model);
+            const center = box.getCenter(new THREE.Vector3());
+            const size = box.getSize(new THREE.Vector3());
+
+            // 将剖切平面放置在模型上方，距离为模型高度的30%
+            const position = center.clone();
+            position.y += size.y * 0.3;
+
+            this.clippingHelper.position.copy(position);
+
+            // 确保朝向正确（法线向下）
+            this.clippingHelper.lookAt(
+                position.x,
+                position.y - 1,
+                position.z
+            );
+
+            // 同步更新剖切平面
+            this.updateClippingPlaneFromHelper();
+
+            console.log(`调整剖切平面位置到: (${position.x.toFixed(2)}, ${position.y.toFixed(2)}, ${position.z.toFixed(2)})`);
+        },
+        /**
+         * 创建变换控制器
+         */
+        createTransformControls() {
+            this.transformControls = new TransformControls(this.camera, this.renderer.domElement);
+            this.transformControls.size = 1.2;
+            this.transformControls.visible = false;
+            this.scene.add(this.transformControls.getHelper());
+
+            // 当变换控制器激活时，禁用轨道控制器
+            this.transformControls.addEventListener('dragging-changed', (event) => {
+                this.controls.enabled = !event.value;
+            });
+
+            // 当变换发生时，更新裁剪平面
+            this.transformControls.addEventListener('change', () => {
+                if (this.clippingHelper && this.transformControls.object === this.clippingHelper) {
+                    this.updateClippingPlaneFromHelper();
+                }
+            });
+        },
+
+        /**
+         * 根据裁剪平面更新助手位置
+         */
+        updateClippingHelperFromPlane() {
+            if (!this.clippingHelper || !this.clippingPlane) return;
+
+            const plane = this.clippingPlane;
+            const normal = plane.normal.clone();
+            const distance = -plane.constant; // Three.js plane constant 是负距离
+
+            // 设置助手位置在平面上
+            this.clippingHelper.position.copy(normal.multiplyScalar(distance));
+
+            // 设置助手朝向
+            this.clippingHelper.lookAt(
+                this.clippingHelper.position.x + normal.x,
+                this.clippingHelper.position.y + normal.y,
+                this.clippingHelper.position.z + normal.z
+            );
+        },
+
+        /**
+         * 根据助手位置更新裁剪平面
+         */
+        updateClippingPlaneFromHelper() {
+            if (!this.clippingHelper || !this.clippingPlane) return;
+
+            // 从助手的变换矩阵获取法线和位置
+            const normal = new THREE.Vector3(0, 0, 1);
+            normal.applyMatrix3(new THREE.Matrix3().getNormalMatrix(this.clippingHelper.matrixWorld));
+            normal.normalize();
+
+            const position = this.clippingHelper.position;
+
+            // 更新裁剪平面
+            this.clippingPlane.setFromNormalAndCoplanarPoint(normal, position);
+
+
+        },
+        /**
+         * 切换剖面显示
+         */
+        toggleClipping() {
+            this.showClipping = !this.showClipping;
+            
+            // 显示/隐藏助手
+            if (this.clippingHelper) {
+                this.clippingHelper.visible = this.showClipping;
+            }
+
+            // 关闭剖面时清除剖面线条
+            if (!this.showClipping) {
+                this.clearSectionLines();
+                // 剖面关闭时，重置为模型控制模式
+                this.controlTarget = 'model';
+                this.$eventBus.$emit('control-target-changed', 'model');
+            }
+
+            // 更新控制模式
+            this.updateControlMode();
+
+            // 发送状态变化事件
+            this.$eventBus.$emit('clipping-changed', this.showClipping);
+        },
+        /**
+         * 对齐裁剪平面
+         */
+        alignClippingPlane(direction) {
+            if (!this.clippingHelper || !this.boundingBox) return;
+
+            const center = this.boundingBox.getCenter(new THREE.Vector3());
+            let normal, position;
+
+            switch (direction) {
+                case 'XY':
+                    normal = new THREE.Vector3(0, 0, 1);
+                    position = center;
+                    break;
+                case 'YZ':
+                    normal = new THREE.Vector3(1, 0, 0);
+                    position = center;
+                    break;
+                case 'XZ':
+                    normal = new THREE.Vector3(0, 1, 0);
+                    position = center;
+                    break;
+                case 'camera': {
+                    // 对齐到相机视角
+                    const cameraDirection = new THREE.Vector3();
+                    this.camera.getWorldDirection(cameraDirection);
+                    normal = cameraDirection.negate();
+                    position = center;
+                    break;
+                }
+                default:
+                    return;
+            }
+
+            // 更新助手位置和朝向
+            this.clippingHelper.position.copy(position);
+            this.clippingHelper.lookAt(
+                position.x + normal.x,
+                position.y + normal.y,
+                position.z + normal.z
+            );
+
+            // 更新裁剪平面
+            this.updateClippingPlaneFromHelper();
+        },
+
+        /**
+         * 设置变换模式
+         */
+        setTransformMode(mode) {
+            if (!this.transformControls) return;
+
+            switch (mode) {
+                case 'translate':
+                    this.transformControls.setMode('translate');
+                    break;
+                case 'rotate':
+                    this.transformControls.setMode('rotate');
+                    break;
+                default:
+                    break;
+            }
+        },
+
+        /**
+         * 设置控制目标
+         */
+        setControlTarget(target) {
+            this.controlTarget = target;
+            this.updateControlMode();
+        },
+
+        /**
+         * 更新控制模式
+         */
+        updateControlMode() {
+            if (!this.controls || !this.transformControls) return;
+
+            if (this.controlTarget === 'model') {
+                // 控制模型：启用OrbitControls，隐藏TransformControls
+                this.controls.enabled = true;
+                if (this.transformControls.visible) {
+                    this.transformControls.detach();
+                    this.transformControls.visible = false;
+                }
+            } else if (this.controlTarget === 'plane' && this.showClipping) {
+                // 控制剖面平面：禁用OrbitControls，显示TransformControls
+                this.controls.enabled = false;
+                if (this.clippingHelper) {
+                    this.transformControls.attach(this.clippingHelper);
+                    this.transformControls.visible = true;
+                }
+            }
+        },
+
+        /**
+         * 生成剖面几何
+         */
+        generateSection() {
+            if (!this.model || !this.clippingPlane) {
+                console.warn('无法生成剖面：缺少模型或裁剪平面');
+                this.$eventBus.$emit('section-data-ready', null);
+                return;
+            }
+
+            console.log('开始生成剖面几何...');
+            
+            // 清除之前的剖面线条
+            this.clearSectionLines();
+            
+            const intersectionSegments = [];
+            const plane = this.clippingPlane;
+            
+            // 遍历模型中的所有网格
+            this.model.traverse((child) => {
+                if (child.isMesh && child.geometry) {
+                    const segments = this.calculateMeshPlaneIntersection(child, plane);
+                    intersectionSegments.push(...segments);
+                }
+            });
+            
+            // 创建剖面线条可视化
+            if (intersectionSegments.length > 0) {
+                this.createSectionLines(intersectionSegments);
+                console.log(`生成了 ${intersectionSegments.length} 个交线段`);
+            }
+
+            // 生成SVG剖面图
+            const svgData = this.generateSectionSVG(intersectionSegments);
+            
+            // 创建完整的剖面数据
+            const sectionData = {
+                svg: svgData.svg,
+                svgColored: svgData.svgColored,
+                segments: intersectionSegments,
+                position: `(${this.clippingHelper.position.x.toFixed(2)}, ${this.clippingHelper.position.y.toFixed(2)}, ${this.clippingHelper.position.z.toFixed(2)})`,
+                normal: `(${plane.normal.x.toFixed(3)}, ${plane.normal.y.toFixed(3)}, ${plane.normal.z.toFixed(3)})`,
+                intersectionCount: intersectionSegments.length,
+                timestamp: new Date().toLocaleString('zh-CN')
+            };
+
+            // 发送剖面数据到模态窗口
+            console.log('发送剖面数据:', sectionData);
+            this.$eventBus.$emit('section-data-ready', sectionData);
+        },
+
+        /**
+         * 计算网格与平面的交线
+         */
+        calculateMeshPlaneIntersection(mesh, plane) {
+            const segments = [];
+            const geometry = mesh.geometry;
+            
+            if (!geometry.attributes.position) return segments;
+            
+            // 获取位置属性和材质信息
+            const positions = geometry.attributes.position.array;
+            const worldMatrix = mesh.matrixWorld;
+            
+            // 获取材质信息
+            const materialInfo = this.getMaterialInfo(mesh);
+            
+            // 如果有索引，使用索引访问三角形
+            if (geometry.index) {
+                const indices = geometry.index.array;
+                
+                for (let i = 0; i < indices.length; i += 3) {
+                    const a = indices[i] * 3;
+                    const b = indices[i + 1] * 3;
+                    const c = indices[i + 2] * 3;
+                    
+                    const segment = this.calculateTrianglePlaneIntersection(
+                        positions, a, b, c, plane, worldMatrix, materialInfo
+                    );
+                    
+                    if (segment) {
+                        segments.push(segment);
+                    }
+                }
+            } else {
+                // 直接访问三角形
+                for (let i = 0; i < positions.length; i += 9) {
+                    const segment = this.calculateTrianglePlaneIntersection(
+                        positions, i, i + 3, i + 6, plane, worldMatrix, materialInfo
+                    );
+                    
+                    if (segment) {
+                        segments.push(segment);
+                    }
+                }
+            }
+            
+            return segments;
+        },
+
+        /**
+         * 获取网格的材质信息
+         */
+        getMaterialInfo(mesh) {
+            let materialId = 'default';
+            let materialName = 'Default';
+            let material = null;
+            
+            if (mesh.material) {
+                material = mesh.material;
+                materialName = mesh.material.name || mesh.name || 'Unknown';
+                materialId = mesh.material.uuid || mesh.uuid || 'default';
+            }
+            
+            // 尝试从网格名称中提取地层信息
+            if (mesh.name) {
+                materialName = mesh.name;
+            }
+            
+            return {
+                id: materialId,
+                name: materialName,
+                material: material
+            };
+        },
+
+        /**
+         * 计算三角形与平面的交线
+         */
+        calculateTrianglePlaneIntersection(positions, aIndex, bIndex, cIndex, plane, worldMatrix, materialInfo = null) {
+            // 获取三角形顶点
+            const v1 = new THREE.Vector3(
+                positions[aIndex], positions[aIndex + 1], positions[aIndex + 2]
+            );
+            const v2 = new THREE.Vector3(
+                positions[bIndex], positions[bIndex + 1], positions[bIndex + 2]
+            );
+            const v3 = new THREE.Vector3(
+                positions[cIndex], positions[cIndex + 1], positions[cIndex + 2]
+            );
+            
+            // 转换到世界坐标
+            v1.applyMatrix4(worldMatrix);
+            v2.applyMatrix4(worldMatrix);
+            v3.applyMatrix4(worldMatrix);
+            
+            // 计算每个顶点到平面的距离
+            const d1 = plane.distanceToPoint(v1);
+            const d2 = plane.distanceToPoint(v2);
+            const d3 = plane.distanceToPoint(v3);
+            
+            const intersectionPoints = [];
+            
+            // 检查边与平面的交点
+            const checkEdgeIntersection = (p1, p2, dist1, dist2) => {
+                if ((dist1 > 0 && dist2 < 0) || (dist1 < 0 && dist2 > 0)) {
+                    // 边跨越平面，计算交点
+                    const t = Math.abs(dist1) / (Math.abs(dist1) + Math.abs(dist2));
+                    const intersection = p1.clone().lerp(p2, t);
+                    return intersection;
+                }
+                return null;
+            };
+            
+            // 检查三条边
+            const int1 = checkEdgeIntersection(v1, v2, d1, d2);
+            const int2 = checkEdgeIntersection(v2, v3, d2, d3);
+            const int3 = checkEdgeIntersection(v3, v1, d3, d1);
+            
+            if (int1) intersectionPoints.push(int1);
+            if (int2) intersectionPoints.push(int2);
+            if (int3) intersectionPoints.push(int3);
+            
+            // 如果有两个交点，返回线段
+            if (intersectionPoints.length === 2) {
+                const segment = {
+                    start: intersectionPoints[0],
+                    end: intersectionPoints[1]
+                };
+                
+                // 添加材质信息
+                if (materialInfo) {
+                    segment.materialId = materialInfo.id;
+                    segment.materialName = materialInfo.name;
+                    segment.material = materialInfo.material;
+                }
+                
+                return segment;
+            }
+            
+            return null;
+        },
+
+        /**
+         * 创建剖面线条可视化
+         */
+        createSectionLines(segments) {
+            const points = [];
+            
+            segments.forEach(segment => {
+                points.push(segment.start, segment.end);
+            });
+            
+            if (points.length === 0) return;
+            
+            // 创建线条几何
+            const geometry = new THREE.BufferGeometry().setFromPoints(points);
+            const material = new THREE.LineBasicMaterial({
+                color: 0xff0000,
+                linewidth: 2,
+                transparent: true,
+                opacity: 0.8
+            });
+            
+            const lines = new THREE.LineSegments(geometry, material);
+            lines.name = 'sectionLines';
+            this.scene.add(lines);
+            this.sectionLines.push(lines);
+        },
+
+        /**
+         * 清除剖面线条
+         */
+        clearSectionLines() {
+            this.sectionLines.forEach(line => {
+                this.scene.remove(line);
+                line.geometry.dispose();
+                line.material.dispose();
+            });
+            this.sectionLines = [];
+        },
+
+        /**
+         * 生成剖面的SVG数据
+         */
+        generateSectionSVG(intersectionSegments) {
+            if (!intersectionSegments || intersectionSegments.length === 0) {
+                return {
+                    svg: '<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg"><text x="200" y="150" text-anchor="middle" font-family="Arial" font-size="16" fill="#666">无剖面数据</text></svg>',
+                    svgColored: '<svg width="400" height="300" xmlns="http://www.w3.org/2000/svg"><text x="200" y="150" text-anchor="middle" font-family="Arial" font-size="16" fill="#666">无剖面数据</text></svg>'
+                };
+            }
+
+            // 将3D线条投影到裁剪平面的2D坐标系，并获取材质信息
+            const projectedData = this.projectIntersectionSegmentsToPlaneWithMaterials(intersectionSegments);
+            
+            // 创建SVG内容（线框版本和彩色版本）
+            const svgWireframe = this.createSVGContent(projectedData.lines, false);
+            const svgColored = this.createSVGContent(projectedData.lines, true, projectedData.materials);
+            
+            return {
+                svg: svgWireframe,
+                svgColored: svgColored
+            };
+        },
+
+        /**
+         * 将交线段投影到2D平面
+         */
+        projectIntersectionSegmentsToPlane(segments) {
+            const projectedLines = [];
+            const plane = this.clippingPlane;
+            
+            // 获取平面的局部坐标系
+            const normal = plane.normal.clone().normalize();
+            const up = new THREE.Vector3(0, 1, 0);
+            const right = new THREE.Vector3().crossVectors(up, normal).normalize();
+            const actualUp = new THREE.Vector3().crossVectors(normal, right).normalize();
+            
+            segments.forEach(segment => {
+                const startProjected = this.projectPointToPlane2D(segment.start, plane, right, actualUp);
+                const endProjected = this.projectPointToPlane2D(segment.end, plane, right, actualUp);
+                
+                projectedLines.push({
+                    start: startProjected,
+                    end: endProjected
+                });
+            });
+            
+            return projectedLines;
+        },
+
+        /**
+         * 将交线段投影到2D平面，并获取材质信息
+         */
+        projectIntersectionSegmentsToPlaneWithMaterials(segments) {
+            const projectedLines = [];
+            const materials = new Map();
+            const plane = this.clippingPlane;
+            
+            // 获取平面的局部坐标系
+            const normal = plane.normal.clone().normalize();
+            const up = new THREE.Vector3(0, 1, 0);
+            const right = new THREE.Vector3().crossVectors(up, normal).normalize();
+            const actualUp = new THREE.Vector3().crossVectors(normal, right).normalize();
+            
+            segments.forEach((segment, index) => {
+                const startProjected = this.projectPointToPlane2D(segment.start, plane, right, actualUp);
+                const endProjected = this.projectPointToPlane2D(segment.end, plane, right, actualUp);
+                
+                // 获取材质颜色信息
+                let materialColor = '#333333'; // 默认颜色
+                if (segment.material) {
+                    if (segment.material.color) {
+                        materialColor = `#${segment.material.color.getHexString()}`;
+                    } else if (segment.materialName) {
+                        // 根据材质名称分配颜色
+                        materialColor = this.getLayerColorByName(segment.materialName);
+                    }
+                }
+                
+                projectedLines.push({
+                    start: startProjected,
+                    end: endProjected,
+                    materialId: segment.materialId || index,
+                    color: materialColor
+                });
+                
+                // 存储材质信息
+                if (segment.materialId) {
+                    materials.set(segment.materialId, {
+                        color: materialColor,
+                        name: segment.materialName || `Material_${segment.materialId}`
+                    });
+                }
+            });
+            
+            return {
+                lines: projectedLines,
+                materials: materials
+            };
+        },
+
+        /**
+         * 根据材质名称获取地层颜色
+         */
+        getLayerColorByName(materialName) {
+            // 地层颜色映射表
+            const layerColors = {
+                'coal': '#2c2c2c',           // 煤层 - 深灰色
+                'sandstone': '#daa520',      // 砂岩 - 金色
+                'mudstone': '#8b4513',       // 泥岩 - 棕色
+                'limestone': '#f5f5dc',      // 石灰岩 - 米色
+                'shale': '#696969',          // 页岩 - 暗灰色
+                'gravel': '#a0522d',         // 砾岩 - 褐色
+                'loose': '#deb887'           // 松散层 - 浅棕色
+            };
+            
+            // 简单匹配材质名称
+            const lowerName = (materialName || '').toLowerCase();
+            for (const [key, color] of Object.entries(layerColors)) {
+                if (lowerName.includes(key)) {
+                    return color;
+                }
+            }
+            
+            // 如果没有匹配，根据名称生成一致的颜色
+            return this.generateColorFromString(materialName || 'default');
+        },
+
+        /**
+         * 根据字符串生成一致的颜色
+         */
+        generateColorFromString(str) {
+            let hash = 0;
+            for (let i = 0; i < str.length; i++) {
+                hash = str.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            
+            const hue = Math.abs(hash % 360);
+            const saturation = 50 + (Math.abs(hash) % 30); // 50-80%
+            const lightness = 40 + (Math.abs(hash >> 8) % 20); // 40-60%
+            
+            return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+        },
+
+        /**
+         * 导出剖面
+         */
+        exportSection(exportData) {
+            
+            const { format, data } = exportData;
+            switch (format) {
+                case 'png':
+                    this.exportPNG();
+                    break;
+                case 'svg':
+                    this.exportSVGFromData(data);
+                    break;
+                case 'json':
+                    this.exportJSONFromData(data);
+                    break;
+                default:
+                    console.warn('不支持的导出格式:', format);
+            }
+            
+        },
+
+        /**
+         * 导出PNG截图
+         */
+        exportPNG() {
+            if (!this.renderer) return;
+
+            this.renderer.render(this.scene, this.camera);
+            const dataURL = this.renderer.domElement.toDataURL('image/png');
+            
+            const link = document.createElement('a');
+            link.download = 'section-screenshot.png';
+            link.href = dataURL;
+            link.click();
+        },
+
+        /**
+         * 导出SVG (2D剖面线)
+         */
+        exportSVG() {
+            if (!this.sectionLines.length) {
+                alert('请先生成剖面');
+                return;
+            }
+
+            // 将3D线条投影到裁剪平面的2D坐标系
+            const projectedLines = this.projectSectionLinesToPlane();
+            
+            // 创建SVG内容
+            const svgContent = this.createSVGContent(projectedLines);
+            
+            // 下载SVG文件
+            const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.download = 'section-profile.svg';
+            link.href = url;
+            link.click();
+            URL.revokeObjectURL(url);
+        },
+
+        /**
+         * 将剖面线投影到2D平面
+         */
+        projectSectionLinesToPlane() {
+            const projectedLines = [];
+            const plane = this.clippingPlane;
+            
+            // 获取平面的局部坐标系
+            const normal = plane.normal.clone().normalize();
+            const up = new THREE.Vector3(0, 1, 0);
+            const right = new THREE.Vector3().crossVectors(up, normal).normalize();
+            const actualUp = new THREE.Vector3().crossVectors(normal, right).normalize();
+            
+            this.sectionLines.forEach(lineObj => {
+                const positions = lineObj.geometry.attributes.position.array;
+                
+                for (let i = 0; i < positions.length; i += 6) {
+                    const start = new THREE.Vector3(positions[i], positions[i + 1], positions[i + 2]);
+                    const end = new THREE.Vector3(positions[i + 3], positions[i + 4], positions[i + 5]);
+                    
+                    // 投影到平面2D坐标
+                    const startProjected = this.projectPointToPlane2D(start, plane, right, actualUp);
+                    const endProjected = this.projectPointToPlane2D(end, plane, right, actualUp);
+                    
+                    projectedLines.push({
+                        start: startProjected,
+                        end: endProjected
+                    });
+                }
+            });
+            
+            return projectedLines;
+        },
+
+        /**
+         * 将3D点投影到平面2D坐标
+         */
+        projectPointToPlane2D(point, plane, rightVec, upVec) {
+            // 将点投影到平面上
+            const planePoint = point.clone();
+            const distance = plane.distanceToPoint(planePoint);
+            planePoint.addScaledVector(plane.normal, -distance);
+            
+            // 获得参考点（平面上的原点）
+            const planeOrigin = plane.normal.clone().multiplyScalar(-plane.constant);
+            
+            // 计算相对于平面原点的向量
+            const relative = planePoint.sub(planeOrigin);
+            
+            // 投影到2D坐标系
+            return {
+                x: relative.dot(rightVec),
+                y: relative.dot(upVec)
+            };
+        },
+
+        /**
+         * 创建SVG内容
+         */
+        createSVGContent(projectedLines, showColors = false, materials = null) {
+            if (projectedLines.length === 0) return '';
+            
+            // 计算边界框
+            let minX = Infinity, maxX = -Infinity;
+            let minY = Infinity, maxY = -Infinity;
+            
+            projectedLines.forEach(line => {
+                minX = Math.min(minX, line.start.x, line.end.x);
+                maxX = Math.max(maxX, line.start.x, line.end.x);
+                minY = Math.min(minY, line.start.y, line.end.y);
+                maxY = Math.max(maxY, line.start.y, line.end.y);
+            });
+            
+            // 优化尺寸：减少空白区域
+            const dataWidth = maxX - minX;
+            const dataHeight = maxY - minY;
+            
+            // 根据数据的宽高比决定padding
+            const aspectRatio = dataWidth / dataHeight;
+            let padding;
+            
+            if (aspectRatio > 2) {
+                // 数据很宽，减少水平padding
+                padding = Math.min(dataHeight * 0.05, dataWidth * 0.02);
+            } else if (aspectRatio < 0.5) {
+                // 数据很高，减少垂直padding
+                padding = Math.min(dataWidth * 0.05, dataHeight * 0.02);
+            } else {
+                // 比例适中
+                padding = Math.min(dataWidth, dataHeight) * 0.05;
+            }
+            
+            const width = dataWidth + 2 * padding;
+            const height = dataHeight + 2 * padding;
+            
+            // 创建SVG内容
+            let svgContent = `<?xml version="1.0" encoding="UTF-8"?>
+<svg width="${width.toFixed(0)}" height="${height.toFixed(0)}" 
+     viewBox="0 0 ${width.toFixed(0)} ${height.toFixed(0)}"
+     xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .section-line { stroke-width: 1.5; fill: none; }
+    .wireframe-line { stroke: #333333; }
+    .colored-line { opacity: 0.8; }
+  </style>`;
+            
+            if (showColors && materials) {
+                // 彩色版本：按材质分组绘制
+                const linesByMaterial = new Map();
+                
+                projectedLines.forEach(line => {
+                    const materialId = line.materialId || 'default';
+                    if (!linesByMaterial.has(materialId)) {
+                        linesByMaterial.set(materialId, []);
+                    }
+                    linesByMaterial.get(materialId).push(line);
+                });
+                
+                linesByMaterial.forEach((lines) => {
+                    const color = lines[0]?.color || '#333333';
+                    let pathData = '';
+                    
+                    lines.forEach(line => {
+                        const x1 = line.start.x - minX + padding;
+                        const y1 = maxY - line.start.y + padding;
+                        const x2 = line.end.x - minX + padding;
+                        const y2 = maxY - line.end.y + padding;
+                        
+                        pathData += `M ${x1.toFixed(2)} ${y1.toFixed(2)} L ${x2.toFixed(2)} ${y2.toFixed(2)} `;
+                    });
+                    
+                    svgContent += `
+  <path d="${pathData}" 
+        class="section-line colored-line" 
+        stroke="${color}"/>`;
+                });
+            } else {
+                // 线框版本：统一样式
+                let pathData = '';
+                projectedLines.forEach(line => {
+                    const x1 = line.start.x - minX + padding;
+                    const y1 = maxY - line.start.y + padding;
+                    const x2 = line.end.x - minX + padding;
+                    const y2 = maxY - line.end.y + padding;
+                    
+                    pathData += `M ${x1.toFixed(2)} ${y1.toFixed(2)} L ${x2.toFixed(2)} ${y2.toFixed(2)} `;
+                });
+                
+                svgContent += `
+  <path d="${pathData}" 
+        class="section-line wireframe-line"/>`;
+            }
+            
+            svgContent += `
+</svg>`;
+            
+            return svgContent;
+        },
+
+        /**
+         * 导出GLB (3D模型)
+         */
+        exportGLB() {
+            if (!this.sectionLines.length) {
+                alert('请先生成剖面');
+                return;
+            }
+            
+            // 这里需要GLTFExporter，暂时提供基础实现
+            console.log('GLB导出需要额外的库支持，当前显示剖面线数据：', this.sectionLines.length, '条线段');
+            
+            // 创建可导出的几何数据
+            const exportData = {
+                type: 'SectionModel',
+                lines: this.sectionLines.length,
+                clippingPlane: {
+                    normal: this.clippingPlane.normal.toArray(),
+                    constant: this.clippingPlane.constant
+                }
+            };
+            
+            // 以JSON格式下载（作为GLB的替代）
+            const dataStr = JSON.stringify(exportData, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.download = 'section-data.json';
+            link.href = url;
+            link.click();
+            URL.revokeObjectURL(url);
+        },
+
+        /**
+         * 从剖面数据导出SVG
+         */
+        exportSVGFromData(sectionData) {
+            if (!sectionData || !sectionData.svg) {
+                alert('无效的剖面数据');
+                return;
+            }
+
+            // 创建SVG文件
+            const svgContent = sectionData.svg;
+            const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.download = `section-profile-${Date.now()}.svg`;
+            link.href = url;
+            link.click();
+            URL.revokeObjectURL(url);
+        },
+
+        /**
+         * 从剖面数据导出JSON
+         */
+        exportJSONFromData(sectionData) {
+            if (!sectionData) {
+                alert('无效的剖面数据');
+                return;
+            }
+
+            // 创建完整的导出数据
+            const exportData = {
+                type: 'SectionData',
+                timestamp: sectionData.timestamp,
+                position: sectionData.position,
+                normal: sectionData.normal,
+                intersectionCount: sectionData.intersectionCount,
+                segments: sectionData.segments
+            };
+
+            const dataStr = JSON.stringify(exportData, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.download = `section-data-${Date.now()}.json`;
+            link.href = url;
+            link.click();
+            URL.revokeObjectURL(url);
+        },
+
+        /**
+         * 导出JSON格式（兼容旧接口）
+         */
+        exportJSON() {
+            if (!this.clippingPlane) {
+                alert('请先启用剖面工具');
+                return;
+            }
+
+            const exportData = {
+                type: 'SectionModel',
+                timestamp: new Date().toLocaleString('zh-CN'),
+                position: this.clippingHelper ? this.clippingHelper.position.toArray() : [0, 0, 0],
+                normal: this.clippingPlane.normal.toArray(),
+                constant: this.clippingPlane.constant,
+                sectionLines: this.sectionLines.length
+            };
+
+            const dataStr = JSON.stringify(exportData, null, 2);
+            const blob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.download = `section-info-${Date.now()}.json`;
+            link.href = url;
+            link.click();
+            URL.revokeObjectURL(url);
+        },
+
+        /**
+         * 清理剖面相关资源
+         */
+        clearClipping() {
+            // 清理助手
+            if (this.clippingHelper) {
+                this.scene.remove(this.clippingHelper);
+                this.clippingHelper.geometry.dispose();
+                this.clippingHelper.material.dispose();
+                this.clippingHelper = null;
+            }
+
+            // 清理变换控制器
+            if (this.transformControls) {
+                this.scene.remove(this.transformControls);
+                this.transformControls.dispose();
+                this.transformControls = null;
+            }
+
+            // 清理剖面线条
+            this.sectionLines.forEach(line => {
+                this.scene.remove(line);
+                line.geometry.dispose();
+                line.material.dispose();
+            });
+            this.sectionLines = [];
+
+            // 清理剖面几何
+            if (this.sectionGeometry) {
+                this.sectionGeometry.dispose();
+                this.sectionGeometry = null;
+            }
+
+            // 重置裁剪平面
+            this.clippingPlanes = [];
+            this.clippingPlane = null;
+            this.showClipping = false;
+
+            // 移除所有材质的裁剪平面
+            if (this.model) {
+                this.model.traverse((child) => {
+                    if (child.isMesh && child.material) {
+                        const materials = Array.isArray(child.material) ? child.material : [child.material];
+                        materials.forEach(material => {
+                            material.clippingPlanes = [];
+                            material.needsUpdate = true;
+                        });
+                    }
+                });
+            }
+        },
+
+        /**
          * 清理资源
          */
         cleanup() {
@@ -1112,6 +2115,7 @@ export default {
             }
 
             this.clearCoordinateAxis();
+            this.clearClipping();
 
             // 清理几何体和材质
             this.originalMaterials.forEach(material => material.dispose());
