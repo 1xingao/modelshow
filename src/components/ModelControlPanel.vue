@@ -133,6 +133,7 @@
                     <label class="layer-label">
                         <input type="checkbox" v-model="layer.visible" @change="toggleLayerVisibility(layer)" />
                         <span class="layer-name">{{ layer.name }}</span>
+                        <input type="color" v-model="layer.color" @change="updateLayerColor(layer)" class="color-picker" />
                     </label>
                     <div class="opacity-control">
                         <label class="opacity-label">透明度:</label>
@@ -196,6 +197,8 @@ export default {
         this.$eventBus.$on('clipping-changed', this.onClippingChanged);
         this.$eventBus.$on('section-generated', this.onSectionGenerated);
         this.$eventBus.$on('control-target-changed', this.onControlTargetChanged);
+        // 监听地层颜色更新反馈
+        this.$eventBus.$on('layer-color-updated', this.onLayerColorUpdated);
     },
     beforeDestroy() {
         // 清理事件监听器
@@ -206,6 +209,7 @@ export default {
         this.$eventBus.$off('clipping-changed', this.onClippingChanged);
         this.$eventBus.$off('section-generated', this.onSectionGenerated);
         this.$eventBus.$off('control-target-changed', this.onControlTargetChanged);
+        this.$eventBus.$off('layer-color-updated', this.onLayerColorUpdated);
     },
     methods: {
         /**
@@ -261,6 +265,19 @@ export default {
         onControlTargetChanged(target) {
             this.controlTarget = target;
         },
+
+        /**
+         * 处理地层颜色更新反馈（用于双向绑定）
+         */
+        onLayerColorUpdated(data) {
+            const { layerId, color } = data;
+            const layer = this.layers.find(layer => layer.id === layerId);
+            if (layer) {
+                // 更新本地数据，触发UI更新
+                this.$set(layer, 'color', color);
+                console.log(`UI同步更新地层 ${layer.name} 颜色为: ${color}`);
+            }
+        },
         /**
          * 加载模型
          */
@@ -304,6 +321,13 @@ export default {
             this.$eventBus.$emit('set-view', viewType);
         },
 
+        updateLayerColor(layer) {
+            const colorValue = parseInt(layer.color.replace('#', ''), 16);
+            this.$eventBus.$emit('update-layer-color', {
+                layerId: layer.id,
+                color: colorValue
+            });
+        },
         /**
          * 切换地层可见性
          * @param {Object} layer - 地层对象

@@ -61,6 +61,7 @@ export default {
         this.$eventBus.$on('update-layer-opacity', this.handleUpdateLayerOpacity);
         this.$eventBus.$on('toggle-coordinate-axis', this.toggleCoordinateAxis);
         this.$eventBus.$on('update-axis-color', this.setAxisColor);
+        this.$eventBus.$on('update-layer-color', this.handleUpdateLayerColor);
         // 剖面相关事件
         this.$eventBus.$on('toggle-clipping', this.toggleClipping);
         this.$eventBus.$on('align-clipping-plane', this.alignClippingPlane);
@@ -86,6 +87,7 @@ export default {
         this.$eventBus.$off('update-layer-opacity', this.handleUpdateLayerOpacity);
         this.$eventBus.$off('toggle-coordinate-axis', this.toggleCoordinateAxis);
         this.$eventBus.$off('update-axis-color', this.setAxisColor);
+        this.$eventBus.$off('update-layer-color', this.handleUpdateLayerColor);
         // 清理剖面相关事件
         this.$eventBus.$off('toggle-clipping', this.toggleClipping);
         this.$eventBus.$off('align-clipping-plane', this.alignClippingPlane);
@@ -155,9 +157,6 @@ export default {
 
             // 初始化剖面功能
             this.initClippingPlane();
-
-            // 添加测试立方体来验证渲染
-            this.addTestCube();
         },
 
         /**
@@ -170,36 +169,6 @@ export default {
 
             console.log('光源设置完成 - 使用纯环境光照明');
         },
-
-        /**
-         * 添加测试立方体
-         */
-        addTestCube() {
-            const geometry = new THREE.BoxGeometry(10, 10, 10);
-            const material = new THREE.MeshStandardMaterial({
-                color: 0x00ff00,
-                wireframe: false
-            });
-            const cube = new THREE.Mesh(geometry, material);
-            cube.position.set(30, 5, 0);
-            cube.name = 'testCube';
-            this.scene.add(cube);
-            console.log('测试立方体已添加');
-        },
-
-        /**
-         * 移除测试立方体
-         */
-        removeTestCube() {
-            const cube = this.scene.getObjectByName('testCube');
-            if (cube) {
-                this.scene.remove(cube);
-                cube.geometry.dispose();
-                cube.material.dispose();
-                console.log('测试立方体已移除');
-            }
-        },
-
         /**
          * 动画循环
          */
@@ -339,9 +308,7 @@ export default {
                 if (this.clippingHelper) {
                     this.updateClippingHelperSize();
                 }
-
-                // 移除测试立方体、初始坐标轴、初始网格
-                this.removeTestCube();
+                // 移除初始坐标轴、初始网格
                 this.axesHelper.visible = false;
                 this.gridHelper.visible = false;
 
@@ -400,12 +367,24 @@ export default {
                         this.originalMaterials.set(child.uuid, child.material.clone());
                     }
 
+                    // 获取当前材质颜色或生成默认颜色
+                    let currentColor = '#ff0000'; // 默认红色
+                    if (child.material && child.material.color) {
+                        currentColor = `#${child.material.color.getHexString()}`;
+                    } else {
+                        // 生成基于索引的颜色
+                        const hue = (this.modelLayers.length * 137.5) % 360;
+                        const color = new THREE.Color().setHSL(hue / 360, 0.7, 0.5);
+                        currentColor = `#${color.getHexString()}`;
+                    }
+
                     const layer = {
                         id: child.uuid,
                         name: layerName,
                         mesh: child,
                         visible: true,
-                        opacity: 1.0
+                        opacity: 1.0,
+                        color: currentColor
                     };
 
                     this.modelLayers.push(layer);
@@ -604,9 +583,6 @@ export default {
 
                 console.log('模型已清除');
 
-                // 重新添加测试立方体
-                this.addTestCube();
-
                 this.$eventBus.$emit('model-cleared');
             }
         },
@@ -654,6 +630,32 @@ export default {
                     layer.mesh.userData.edgeLines.material.color.setHex(color);
                 }
             });
+        },
+        /**
+         * 处理地层颜色更新
+         * @param {Object} data - {layerId: string, color: number}
+         */
+        handleUpdateLayerColor(data) {
+            console.log('更新地层颜色:', data);
+            const { layerId, color } = data;
+            const layer = this.modelLayers.find(layer => layer.id === layerId);
+            
+            if (layer && layer.mesh && layer.mesh.material) {
+                // 更新材质颜色
+                layer.mesh.material.color.setHex(color);
+                // 同步更新地层数据中的颜色值（用于双向绑定）
+                layer.color = `#${color.toString(16).padStart(6, '0')}`;
+                
+                console.log(`地层 ${layer.name} 颜色已更新为: ${layer.color}`);
+                
+                // 发送事件通知控制面板更新UI
+                this.$eventBus.$emit('layer-color-updated', {
+                    layerId: layerId,
+                    color: layer.color
+                });
+            } else {
+                console.warn('未找到地层或材质:', layerId);
+            }
         },
 
         /**
