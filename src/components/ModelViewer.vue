@@ -49,7 +49,7 @@ export default {
         this.initThreeJS();
         this.animate();
         window.addEventListener('resize', this.handleResize);
-        
+
         // 监听来自控制面板的事件
         this.$eventBus.$on('load-model', this.loadModel);
         this.$eventBus.$on('clear-model', this.clearModel);
@@ -75,7 +75,7 @@ export default {
         if (this.animationId) {
             cancelAnimationFrame(this.animationId);
         }
-        
+
         // 清理事件监听器
         this.$eventBus.$off('load-model', this.loadModel);
         this.$eventBus.$off('clear-model', this.clearModel);
@@ -95,7 +95,7 @@ export default {
         this.$eventBus.$off('set-control-target', this.setControlTarget);
         this.$eventBus.$off('generate-section', this.generateSection);
         this.$eventBus.$off('export-section', this.exportSection);
-        
+
         this.cleanup();
     },
     methods: {
@@ -119,6 +119,12 @@ export default {
             this.renderer = new THREE.WebGLRenderer({ antialias: true, logarithmicDepthBuffer: true });
             this.renderer.setClearColor(0xfafafa);
             this.renderer.setSize(width, height);
+            this.renderer.physicallyCorrectLights = true;
+            this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+            this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            this.renderer.toneMappingExposure = 1.0;
+            this.renderer.shadowMap.enabled = true;
+            this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             // 不启用阴影，简化渲染
             container.appendChild(this.renderer.domElement);
 
@@ -351,7 +357,7 @@ export default {
         },
 
         /**
-         * 解析模型中的地层
+         * 解析模型中的地层,向控制控件传递数据用于双向绑定
          * @param {THREE.Object3D} model - 3D模型对象
          */
         parseLayers(model) {
@@ -468,11 +474,11 @@ export default {
             const fov = this.camera.fov * (Math.PI / 180);
             const cameraDistance = Math.abs(maxDim / 2 / Math.tan(fov / 2)) * 2.0;
 
-            // 设置相机位置（默认底视图 - 从下往上看）
+            // 设置相机位置（默认等轴测视图 - 提供良好的整体视角）
             this.camera.position.set(
-                center.x,
-                center.y - cameraDistance,
-                center.z
+                center.x + cameraDistance * 0.7,
+                center.y + cameraDistance * 0.7,
+                center.z + cameraDistance * 0.7
             );
 
             // 设置相机目标
@@ -636,25 +642,10 @@ export default {
          * @param {Object} data - {layerId: string, color: number}
          */
         handleUpdateLayerColor(data) {
-            console.log('更新地层颜色:', data);
-            const { layerId, color } = data;
-            const layer = this.modelLayers.find(layer => layer.id === layerId);
-            
+            const layer = this.modelLayers.find(l => l.id === data.layerId);
             if (layer && layer.mesh && layer.mesh.material) {
-                // 更新材质颜色
-                layer.mesh.material.color.setHex(color);
-                // 同步更新地层数据中的颜色值（用于双向绑定）
-                layer.color = `#${color.toString(16).padStart(6, '0')}`;
-                
-                console.log(`地层 ${layer.name} 颜色已更新为: ${layer.color}`);
-                
-                // 发送事件通知控制面板更新UI
-                this.$eventBus.$emit('layer-color-updated', {
-                    layerId: layerId,
-                    color: layer.color
-                });
-            } else {
-                console.warn('未找到地层或材质:', layerId);
+                layer.mesh.material.color.setHex(data.color);
+                layer.color = `#${data.color.toString(16).padStart(6, '0')}`;
             }
         },
 
@@ -682,28 +673,36 @@ export default {
 
             switch (viewType) {
                 case 'front':
-                    // 正面 = 原来的底视图（从下往上看）
-                    cameraPosition.set(center.x, center.y - distance, center.z);
+                    // 前视图：从Z轴负方向看向正方向（看模型正面）
+                    cameraPosition.set(center.x, center.y, center.z - distance);
                     break;
                 case 'back':
-                    // 背面 = 原来的顶视图（从上往下看）
-                    cameraPosition.set(center.x, center.y + distance, center.z);
+                    // 后视图：从Z轴正方向看向负方向（看模型背面）
+                    cameraPosition.set(center.x, center.y, center.z + distance);
                     break;
                 case 'left':
-                    // 左侧视图
+                    // 左视图：从X轴负方向看向正方向（看模型左侧）
                     cameraPosition.set(center.x - distance, center.y, center.z);
                     break;
                 case 'right':
-                    // 右侧视图  
+                    // 右视图：从X轴正方向看向负方向（看模型右侧）
                     cameraPosition.set(center.x + distance, center.y, center.z);
                     break;
                 case 'top':
-                    // 顶视图 = 原来的前视图（从Z轴正方向看）
-                    cameraPosition.set(center.x, center.y, center.z + distance);
+                    // 顶视图：从Y轴正方向看向负方向（看模型顶部）
+                    cameraPosition.set(center.x, center.y + distance, center.z);
                     break;
                 case 'bottom':
-                    // 底视图 = 原来的后视图（从Z轴负方向看）
-                    cameraPosition.set(center.x, center.y, center.z - distance);
+                    // 底视图：从Y轴负方向看向正方向（看模型底部）
+                    cameraPosition.set(center.x, center.y - distance, center.z);
+                    break;
+                case 'isometric':
+                    // 等轴测视图：提供立体感的观察角度
+                    cameraPosition.set(
+                        center.x + distance * 0.7,
+                        center.y + distance * 0.7,
+                        center.z + distance * 0.7
+                    );
                     break;
                 default:
                     // 默认等轴测视图
@@ -729,29 +728,36 @@ export default {
 
             switch (viewType) {
                 case 'front':
-                    // 正面 = 从下往上看
-                    cameraPosition.set(0, -distance, 0);
+                    // 前视图：从Z轴负方向看向正方向
+                    cameraPosition.set(0, 0, -distance);
                     break;
                 case 'back':
-                    // 背面 = 从上往下看
-                    cameraPosition.set(0, distance, 0);
+                    // 后视图：从Z轴正方向看向负方向
+                    cameraPosition.set(0, 0, distance);
                     break;
                 case 'left':
+                    // 左视图：从X轴负方向看向正方向
                     cameraPosition.set(-distance, 0, 0);
                     break;
                 case 'right':
+                    // 右视图：从X轴正方向看向负方向
                     cameraPosition.set(distance, 0, 0);
                     break;
                 case 'top':
-                    // 顶视图 = 从Z轴正方向看
-                    cameraPosition.set(0, 0, distance);
+                    // 顶视图：从Y轴正方向看向负方向
+                    cameraPosition.set(0, distance, 0);
                     break;
                 case 'bottom':
-                    // 底视图 = 从Z轴负方向看
-                    cameraPosition.set(0, 0, -distance);
+                    // 底视图：从Y轴负方向看向正方向
+                    cameraPosition.set(0, -distance, 0);
+                    break;
+                case 'isometric':
+                    // 等轴测视图
+                    cameraPosition.set(distance * 0.7, distance * 0.7, distance * 0.7);
                     break;
                 default:
-                    cameraPosition.set(distance * 0.7, -distance * 0.7, distance * 0.7);
+                    // 默认等轴测视图
+                    cameraPosition.set(distance * 0.7, distance * 0.7, distance * 0.7);
             }
 
             this.animateCameraTo(cameraPosition, center);
@@ -875,7 +881,7 @@ export default {
             this.camera.updateProjectionMatrix();
 
             this.renderer.setSize(width, height);
-            
+
             if (this.labelRenderer) {
                 this.labelRenderer.setSize(width, height);
             }
@@ -900,7 +906,7 @@ export default {
             // 创建包围盒线框
             const boxGeometry = new THREE.BoxGeometry(size.x, size.y, size.z);
             const boxEdges = new THREE.EdgesGeometry(boxGeometry);
-            const boxMaterial = new THREE.LineBasicMaterial({ 
+            const boxMaterial = new THREE.LineBasicMaterial({
                 color: this.axisColor,
                 transparent: true,
                 opacity: 0.8
@@ -922,12 +928,12 @@ export default {
             const getTickInterval = (dimension) => {
                 const magnitude = Math.floor(Math.log10(dimension));
                 const normalized = dimension / Math.pow(10, magnitude);
-                
+
                 let interval;
                 if (normalized <= 2) interval = 0.5;
                 else if (normalized <= 5) interval = 1;
                 else interval = 2;
-                
+
                 return interval * Math.pow(10, magnitude);
             };
 
@@ -937,10 +943,10 @@ export default {
 
             // X轴标签 (沿着底部前边)
             this.createAxisTickLabels('x', min.x, max.x, xInterval, min.y, min.z);
-            
+
             // Y轴标签 (沿着左侧前边)
             this.createAxisTickLabels('y', min.y, max.y, yInterval, min.x, min.z);
-            
+
             // Z轴标签 (沿着左侧底边)
             this.createAxisTickLabels('z', min.z, max.z, zInterval, min.x, min.y);
         },
@@ -955,7 +961,7 @@ export default {
             for (let value = start; value <= end; value += interval) {
                 // 避免浮点数精度问题
                 const roundedValue = Math.round(value / interval) * interval;
-                
+
                 const labelDiv = document.createElement('div');
                 labelDiv.className = 'coordinate-label';
                 labelDiv.textContent = roundedValue.toFixed(2);
@@ -992,7 +998,7 @@ export default {
          */
         toggleCoordinateAxis() {
             this.showCoordinateAxis = !this.showCoordinateAxis;
-            
+
             if (this.showCoordinateAxis) {
                 this.createCoordinateAxis();
             } else {
@@ -1007,7 +1013,7 @@ export default {
          */
         setAxisColor(color) {
             this.axisColor = color;
-            
+
             // 更新现有坐标轴颜色
             if (this.coordinateBox && this.coordinateBox.material) {
                 this.coordinateBox.material.color.setHex(color);
@@ -1070,7 +1076,7 @@ export default {
 
             // 创建变换控制器
             this.createTransformControls();
-            
+
             console.log('裁剪平面系统初始化完成');
         },
 
@@ -1127,7 +1133,7 @@ export default {
             this.clippingHelper.geometry = new THREE.PlaneGeometry(planeSize, planeSize);
 
             console.log(`更新剖切平面尺寸为: ${planeSize.toFixed(2)}`);
-            
+
             // 同时调整位置确保可见
             this.adjustClippingHelperPosition();
         },
@@ -1226,7 +1232,7 @@ export default {
          */
         toggleClipping() {
             this.showClipping = !this.showClipping;
-            
+
             // 显示/隐藏助手
             if (this.clippingHelper) {
                 this.clippingHelper.visible = this.showClipping;
@@ -1352,13 +1358,13 @@ export default {
             }
 
             console.log('开始生成剖面几何...');
-            
+
             // 清除之前的剖面线条
             this.clearSectionLines();
-            
+
             const intersectionSegments = [];
             const plane = this.clippingPlane;
-            
+
             // 遍历模型中的所有网格
             this.model.traverse((child) => {
                 if (child.isMesh && child.geometry) {
@@ -1366,7 +1372,7 @@ export default {
                     intersectionSegments.push(...segments);
                 }
             });
-            
+
             // 创建剖面线条可视化
             if (intersectionSegments.length > 0) {
                 this.createSectionLines(intersectionSegments);
@@ -1375,7 +1381,7 @@ export default {
 
             // 生成SVG剖面图
             const svgData = this.generateSectionSVG(intersectionSegments);
-            
+
             // 创建完整的剖面数据
             const sectionData = {
                 svg: svgData.svg,
@@ -1398,29 +1404,29 @@ export default {
         calculateMeshPlaneIntersection(mesh, plane) {
             const segments = [];
             const geometry = mesh.geometry;
-            
+
             if (!geometry.attributes.position) return segments;
-            
+
             // 获取位置属性和材质信息
             const positions = geometry.attributes.position.array;
             const worldMatrix = mesh.matrixWorld;
-            
+
             // 获取材质信息
             const materialInfo = this.getMaterialInfo(mesh);
-            
+
             // 如果有索引，使用索引访问三角形
             if (geometry.index) {
                 const indices = geometry.index.array;
-                
+
                 for (let i = 0; i < indices.length; i += 3) {
                     const a = indices[i] * 3;
                     const b = indices[i + 1] * 3;
                     const c = indices[i + 2] * 3;
-                    
+
                     const segment = this.calculateTrianglePlaneIntersection(
                         positions, a, b, c, plane, worldMatrix, materialInfo
                     );
-                    
+
                     if (segment) {
                         segments.push(segment);
                     }
@@ -1431,13 +1437,13 @@ export default {
                     const segment = this.calculateTrianglePlaneIntersection(
                         positions, i, i + 3, i + 6, plane, worldMatrix, materialInfo
                     );
-                    
+
                     if (segment) {
                         segments.push(segment);
                     }
                 }
             }
-            
+
             return segments;
         },
 
@@ -1448,18 +1454,18 @@ export default {
             let materialId = 'default';
             let materialName = 'Default';
             let material = null;
-            
+
             if (mesh.material) {
                 material = mesh.material;
                 materialName = mesh.material.name || mesh.name || 'Unknown';
                 materialId = mesh.material.uuid || mesh.uuid || 'default';
             }
-            
+
             // 尝试从网格名称中提取地层信息
             if (mesh.name) {
                 materialName = mesh.name;
             }
-            
+
             return {
                 id: materialId,
                 name: materialName,
@@ -1481,19 +1487,19 @@ export default {
             const v3 = new THREE.Vector3(
                 positions[cIndex], positions[cIndex + 1], positions[cIndex + 2]
             );
-            
+
             // 转换到世界坐标
             v1.applyMatrix4(worldMatrix);
             v2.applyMatrix4(worldMatrix);
             v3.applyMatrix4(worldMatrix);
-            
+
             // 计算每个顶点到平面的距离
             const d1 = plane.distanceToPoint(v1);
             const d2 = plane.distanceToPoint(v2);
             const d3 = plane.distanceToPoint(v3);
-            
+
             const intersectionPoints = [];
-            
+
             // 检查边与平面的交点
             const checkEdgeIntersection = (p1, p2, dist1, dist2) => {
                 if ((dist1 > 0 && dist2 < 0) || (dist1 < 0 && dist2 > 0)) {
@@ -1504,33 +1510,33 @@ export default {
                 }
                 return null;
             };
-            
+
             // 检查三条边
             const int1 = checkEdgeIntersection(v1, v2, d1, d2);
             const int2 = checkEdgeIntersection(v2, v3, d2, d3);
             const int3 = checkEdgeIntersection(v3, v1, d3, d1);
-            
+
             if (int1) intersectionPoints.push(int1);
             if (int2) intersectionPoints.push(int2);
             if (int3) intersectionPoints.push(int3);
-            
+
             // 如果有两个交点，返回线段
             if (intersectionPoints.length === 2) {
                 const segment = {
                     start: intersectionPoints[0],
                     end: intersectionPoints[1]
                 };
-                
+
                 // 添加材质信息
                 if (materialInfo) {
                     segment.materialId = materialInfo.id;
                     segment.materialName = materialInfo.name;
                     segment.material = materialInfo.material;
                 }
-                
+
                 return segment;
             }
-            
+
             return null;
         },
 
@@ -1539,13 +1545,13 @@ export default {
          */
         createSectionLines(segments) {
             const points = [];
-            
+
             segments.forEach(segment => {
                 points.push(segment.start, segment.end);
             });
-            
+
             if (points.length === 0) return;
-            
+
             // 创建线条几何
             const geometry = new THREE.BufferGeometry().setFromPoints(points);
             const material = new THREE.LineBasicMaterial({
@@ -1554,7 +1560,7 @@ export default {
                 transparent: true,
                 opacity: 0.8
             });
-            
+
             const lines = new THREE.LineSegments(geometry, material);
             lines.name = 'sectionLines';
             this.scene.add(lines);
@@ -1586,11 +1592,11 @@ export default {
 
             // 将3D线条投影到裁剪平面的2D坐标系，并获取材质信息
             const projectedData = this.projectIntersectionSegmentsToPlaneWithMaterials(intersectionSegments);
-            
+
             // 创建SVG内容（线框版本和彩色版本）
             const svgWireframe = this.createSVGContent(projectedData.lines, false);
             const svgColored = this.createSVGContent(projectedData.lines, true, projectedData.materials);
-            
+
             return {
                 svg: svgWireframe,
                 svgColored: svgColored
@@ -1603,23 +1609,23 @@ export default {
         projectIntersectionSegmentsToPlane(segments) {
             const projectedLines = [];
             const plane = this.clippingPlane;
-            
+
             // 获取平面的局部坐标系
             const normal = plane.normal.clone().normalize();
             const up = new THREE.Vector3(0, 1, 0);
             const right = new THREE.Vector3().crossVectors(up, normal).normalize();
             const actualUp = new THREE.Vector3().crossVectors(normal, right).normalize();
-            
+
             segments.forEach(segment => {
                 const startProjected = this.projectPointToPlane2D(segment.start, plane, right, actualUp);
                 const endProjected = this.projectPointToPlane2D(segment.end, plane, right, actualUp);
-                
+
                 projectedLines.push({
                     start: startProjected,
                     end: endProjected
                 });
             });
-            
+
             return projectedLines;
         },
 
@@ -1630,17 +1636,17 @@ export default {
             const projectedLines = [];
             const materials = new Map();
             const plane = this.clippingPlane;
-            
+
             // 获取平面的局部坐标系
             const normal = plane.normal.clone().normalize();
             const up = new THREE.Vector3(0, 1, 0);
             const right = new THREE.Vector3().crossVectors(up, normal).normalize();
             const actualUp = new THREE.Vector3().crossVectors(normal, right).normalize();
-            
+
             segments.forEach((segment, index) => {
                 const startProjected = this.projectPointToPlane2D(segment.start, plane, right, actualUp);
                 const endProjected = this.projectPointToPlane2D(segment.end, plane, right, actualUp);
-                
+
                 // 获取材质颜色信息
                 let materialColor = '#333333'; // 默认颜色
                 if (segment.material) {
@@ -1651,14 +1657,14 @@ export default {
                         materialColor = this.getLayerColorByName(segment.materialName);
                     }
                 }
-                
+
                 projectedLines.push({
                     start: startProjected,
                     end: endProjected,
                     materialId: segment.materialId || index,
                     color: materialColor
                 });
-                
+
                 // 存储材质信息
                 if (segment.materialId) {
                     materials.set(segment.materialId, {
@@ -1667,7 +1673,7 @@ export default {
                     });
                 }
             });
-            
+
             return {
                 lines: projectedLines,
                 materials: materials
@@ -1688,7 +1694,7 @@ export default {
                 'gravel': '#a0522d',         // 砾岩 - 褐色
                 'loose': '#deb887'           // 松散层 - 浅棕色
             };
-            
+
             // 简单匹配材质名称
             const lowerName = (materialName || '').toLowerCase();
             for (const [key, color] of Object.entries(layerColors)) {
@@ -1696,7 +1702,7 @@ export default {
                     return color;
                 }
             }
-            
+
             // 如果没有匹配，根据名称生成一致的颜色
             return this.generateColorFromString(materialName || 'default');
         },
@@ -1709,11 +1715,11 @@ export default {
             for (let i = 0; i < str.length; i++) {
                 hash = str.charCodeAt(i) + ((hash << 5) - hash);
             }
-            
+
             const hue = Math.abs(hash % 360);
             const saturation = 50 + (Math.abs(hash) % 30); // 50-80%
             const lightness = 40 + (Math.abs(hash >> 8) % 20); // 40-60%
-            
+
             return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
         },
 
@@ -1721,7 +1727,7 @@ export default {
          * 导出剖面
          */
         exportSection(exportData) {
-            
+
             const { format, data } = exportData;
             switch (format) {
                 case 'png':
@@ -1736,7 +1742,7 @@ export default {
                 default:
                     console.warn('不支持的导出格式:', format);
             }
-            
+
         },
 
         /**
@@ -1747,7 +1753,7 @@ export default {
 
             this.renderer.render(this.scene, this.camera);
             const dataURL = this.renderer.domElement.toDataURL('image/png');
-            
+
             const link = document.createElement('a');
             link.download = 'section-screenshot.png';
             link.href = dataURL;
@@ -1765,10 +1771,10 @@ export default {
 
             // 将3D线条投影到裁剪平面的2D坐标系
             const projectedLines = this.projectSectionLinesToPlane();
-            
+
             // 创建SVG内容
             const svgContent = this.createSVGContent(projectedLines);
-            
+
             // 下载SVG文件
             const blob = new Blob([svgContent], { type: 'image/svg+xml' });
             const url = URL.createObjectURL(blob);
@@ -1785,31 +1791,31 @@ export default {
         projectSectionLinesToPlane() {
             const projectedLines = [];
             const plane = this.clippingPlane;
-            
+
             // 获取平面的局部坐标系
             const normal = plane.normal.clone().normalize();
             const up = new THREE.Vector3(0, 1, 0);
             const right = new THREE.Vector3().crossVectors(up, normal).normalize();
             const actualUp = new THREE.Vector3().crossVectors(normal, right).normalize();
-            
+
             this.sectionLines.forEach(lineObj => {
                 const positions = lineObj.geometry.attributes.position.array;
-                
+
                 for (let i = 0; i < positions.length; i += 6) {
                     const start = new THREE.Vector3(positions[i], positions[i + 1], positions[i + 2]);
                     const end = new THREE.Vector3(positions[i + 3], positions[i + 4], positions[i + 5]);
-                    
+
                     // 投影到平面2D坐标
                     const startProjected = this.projectPointToPlane2D(start, plane, right, actualUp);
                     const endProjected = this.projectPointToPlane2D(end, plane, right, actualUp);
-                    
+
                     projectedLines.push({
                         start: startProjected,
                         end: endProjected
                     });
                 }
             });
-            
+
             return projectedLines;
         },
 
@@ -1821,13 +1827,13 @@ export default {
             const planePoint = point.clone();
             const distance = plane.distanceToPoint(planePoint);
             planePoint.addScaledVector(plane.normal, -distance);
-            
+
             // 获得参考点（平面上的原点）
             const planeOrigin = plane.normal.clone().multiplyScalar(-plane.constant);
-            
+
             // 计算相对于平面原点的向量
             const relative = planePoint.sub(planeOrigin);
-            
+
             // 投影到2D坐标系
             return {
                 x: relative.dot(rightVec),
@@ -1840,26 +1846,26 @@ export default {
          */
         createSVGContent(projectedLines, showColors = false, materials = null) {
             if (projectedLines.length === 0) return '';
-            
+
             // 计算边界框
             let minX = Infinity, maxX = -Infinity;
             let minY = Infinity, maxY = -Infinity;
-            
+
             projectedLines.forEach(line => {
                 minX = Math.min(minX, line.start.x, line.end.x);
                 maxX = Math.max(maxX, line.start.x, line.end.x);
                 minY = Math.min(minY, line.start.y, line.end.y);
                 maxY = Math.max(maxY, line.start.y, line.end.y);
             });
-            
+
             // 优化尺寸：减少空白区域
             const dataWidth = maxX - minX;
             const dataHeight = maxY - minY;
-            
+
             // 根据数据的宽高比决定padding
             const aspectRatio = dataWidth / dataHeight;
             let padding;
-            
+
             if (aspectRatio > 2) {
                 // 数据很宽，减少水平padding
                 padding = Math.min(dataHeight * 0.05, dataWidth * 0.02);
@@ -1870,10 +1876,10 @@ export default {
                 // 比例适中
                 padding = Math.min(dataWidth, dataHeight) * 0.05;
             }
-            
+
             const width = dataWidth + 2 * padding;
             const height = dataHeight + 2 * padding;
-            
+
             // 创建SVG内容
             let svgContent = `<?xml version="1.0" encoding="UTF-8"?>
 <svg width="${width.toFixed(0)}" height="${height.toFixed(0)}" 
@@ -1884,11 +1890,11 @@ export default {
     .wireframe-line { stroke: #333333; }
     .colored-line { opacity: 0.8; }
   </style>`;
-            
+
             if (showColors && materials) {
                 // 彩色版本：按材质分组绘制
                 const linesByMaterial = new Map();
-                
+
                 projectedLines.forEach(line => {
                     const materialId = line.materialId || 'default';
                     if (!linesByMaterial.has(materialId)) {
@@ -1896,20 +1902,20 @@ export default {
                     }
                     linesByMaterial.get(materialId).push(line);
                 });
-                
+
                 linesByMaterial.forEach((lines) => {
                     const color = lines[0]?.color || '#333333';
                     let pathData = '';
-                    
+
                     lines.forEach(line => {
                         const x1 = line.start.x - minX + padding;
                         const y1 = maxY - line.start.y + padding;
                         const x2 = line.end.x - minX + padding;
                         const y2 = maxY - line.end.y + padding;
-                        
+
                         pathData += `M ${x1.toFixed(2)} ${y1.toFixed(2)} L ${x2.toFixed(2)} ${y2.toFixed(2)} `;
                     });
-                    
+
                     svgContent += `
   <path d="${pathData}" 
         class="section-line colored-line" 
@@ -1923,18 +1929,18 @@ export default {
                     const y1 = maxY - line.start.y + padding;
                     const x2 = line.end.x - minX + padding;
                     const y2 = maxY - line.end.y + padding;
-                    
+
                     pathData += `M ${x1.toFixed(2)} ${y1.toFixed(2)} L ${x2.toFixed(2)} ${y2.toFixed(2)} `;
                 });
-                
+
                 svgContent += `
   <path d="${pathData}" 
         class="section-line wireframe-line"/>`;
             }
-            
+
             svgContent += `
 </svg>`;
-            
+
             return svgContent;
         },
 
@@ -1946,10 +1952,10 @@ export default {
                 alert('请先生成剖面');
                 return;
             }
-            
+
             // 这里需要GLTFExporter，暂时提供基础实现
             console.log('GLB导出需要额外的库支持，当前显示剖面线数据：', this.sectionLines.length, '条线段');
-            
+
             // 创建可导出的几何数据
             const exportData = {
                 type: 'SectionModel',
@@ -1959,7 +1965,7 @@ export default {
                     constant: this.clippingPlane.constant
                 }
             };
-            
+
             // 以JSON格式下载（作为GLB的替代）
             const dataStr = JSON.stringify(exportData, null, 2);
             const blob = new Blob([dataStr], { type: 'application/json' });

@@ -32,7 +32,7 @@
                     <label class="color-label">边缘线颜色:</label>
                     <input type="color" v-model="edgeColorHex" @change="updateEdgeColor" class="color-picker" />
                 </div>
-                
+
                 <label class="checkbox-label">
                     <input type="checkbox" v-model="showCoordinateAxis" @change="toggleCoordinateAxis" />
                     显示坐标轴
@@ -54,13 +54,14 @@
                 <button @click="setView('right')" class="view-btn">右视图</button>
                 <button @click="setView('top')" class="view-btn">顶视图</button>
                 <button @click="setView('bottom')" class="view-btn">底视图</button>
+                <button @click="setView('isometric')" class="view-btn isometric">等轴测</button>
             </div>
         </div>
 
         <!-- 剖面工具 -->
         <div class="control-section" v-if="modelLoaded">
             <h4>剖面工具</h4>
-            
+
             <!-- 启用剖切 -->
             <div class="checkbox-group">
                 <label class="checkbox-label">
@@ -75,13 +76,11 @@
                 <div class="control-target-selection">
                     <label class="control-label">控制目标:</label>
                     <div class="target-buttons">
-                        <button 
-                            @click="setControlTarget('model')"
+                        <button @click="setControlTarget('model')"
                             :class="['target-btn', { active: controlTarget === 'model' }]">
                             模型
                         </button>
-                        <button 
-                            @click="setControlTarget('plane')"
+                        <button @click="setControlTarget('plane')"
                             :class="['target-btn', { active: controlTarget === 'plane' }]">
                             剖面平面
                         </button>
@@ -103,13 +102,11 @@
                 <div class="transform-control">
                     <label class="control-label">操作:</label>
                     <div class="transform-buttons">
-                        <button 
-                            @click="setTransformMode('translate')"
+                        <button @click="setTransformMode('translate')"
                             :class="['transform-btn', { active: clipTransformMode === 'translate' }]">
                             平移
                         </button>
-                        <button 
-                            @click="setTransformMode('rotate')"
+                        <button @click="setTransformMode('rotate')"
                             :class="['transform-btn', { active: clipTransformMode === 'rotate' }]">
                             旋转
                         </button>
@@ -133,7 +130,8 @@
                     <label class="layer-label">
                         <input type="checkbox" v-model="layer.visible" @change="toggleLayerVisibility(layer)" />
                         <span class="layer-name">{{ layer.name }}</span>
-                        <input type="color" v-model="layer.color" @change="updateLayerColor(layer)" class="color-picker" />
+                        <input type="color" v-model="layer.color" @change="updateLayerColor(layer)"
+                            class="color-picker-layerlist color-picker" />
                     </label>
                     <div class="opacity-control">
                         <label class="opacity-label">透明度:</label>
@@ -197,8 +195,6 @@ export default {
         this.$eventBus.$on('clipping-changed', this.onClippingChanged);
         this.$eventBus.$on('section-generated', this.onSectionGenerated);
         this.$eventBus.$on('control-target-changed', this.onControlTargetChanged);
-        // 监听地层颜色更新反馈
-        this.$eventBus.$on('layer-color-updated', this.onLayerColorUpdated);
     },
     beforeDestroy() {
         // 清理事件监听器
@@ -209,7 +205,7 @@ export default {
         this.$eventBus.$off('clipping-changed', this.onClippingChanged);
         this.$eventBus.$off('section-generated', this.onSectionGenerated);
         this.$eventBus.$off('control-target-changed', this.onControlTargetChanged);
-        this.$eventBus.$off('layer-color-updated', this.onLayerColorUpdated);
+
     },
     methods: {
         /**
@@ -265,19 +261,6 @@ export default {
         onControlTargetChanged(target) {
             this.controlTarget = target;
         },
-
-        /**
-         * 处理地层颜色更新反馈（用于双向绑定）
-         */
-        onLayerColorUpdated(data) {
-            const { layerId, color } = data;
-            const layer = this.layers.find(layer => layer.id === layerId);
-            if (layer) {
-                // 更新本地数据，触发UI更新
-                this.$set(layer, 'color', color);
-                console.log(`UI同步更新地层 ${layer.name} 颜色为: ${color}`);
-            }
-        },
         /**
          * 加载模型
          */
@@ -304,7 +287,6 @@ export default {
         toggleWireframe() {
             this.$eventBus.$emit('toggle-wireframe', this.showWireframe);
         },
-
         /**
          * 更新边缘线颜色
          */
@@ -532,12 +514,19 @@ export default {
     white-space: nowrap;
 }
 
-.color-picker {
+.color-picker
+{
     width: 40px;
     height: 30px;
     border: 1px solid #ddd;
     border-radius: 4px;
     cursor: pointer;
+}
+
+.color-picker-layerlist {
+    flex: 0 0 40px;
+    margin-left: auto;
+    
 }
 
 .view-buttons {
@@ -560,6 +549,17 @@ export default {
 .view-btn:hover {
     background-color: #007bff;
     color: white;
+}
+
+.view-btn.isometric {
+    background-color: #28a745;
+    border-color: #28a745;
+    color: white;
+}
+
+.view-btn.isometric:hover {
+    background-color: #218838;
+    border-color: #218838;
 }
 
 .layers-list {
@@ -590,8 +590,15 @@ export default {
 }
 
 .layer-name {
+    flex: 1 1 auto;
     font-weight: 500;
     color: #495057;
+    text-overflow: ellipsis;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+
+
 }
 
 .opacity-control {
