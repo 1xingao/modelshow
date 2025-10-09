@@ -5,6 +5,7 @@
 <script>
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { CSS2DRenderer, CSS2DObject } from 'three/examples/jsm/renderers/CSS2DRenderer.js';
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js';
@@ -42,7 +43,11 @@ export default {
             showClipping: false, // 控制剖面显示
             controlTarget: 'model', // 控制目标：'model'（模型）或 'plane'（剖面平面）
             sectionGeometry: null, // 生成的剖面几何
-            sectionLines: [] // 剖面线条
+            sectionLines: [], // 剖面线条
+            // API 相关
+            currentBlobUrl: null, // 当前模型的 blob URL
+            loading: false, // 加载状态
+            error: null // 错误信息
         }
     },
     mounted() {
@@ -196,14 +201,31 @@ export default {
 
         /**
          * 加载GLTF模型
-         * @param {string} modelPath - 模型文件路径
+         * @param {string} modelPath - 模型文件路径或API端点，如果不提供则从后端API加载默认模型
          */
-        async loadModel(modelPath = './model_gltf/output_model.gltf') {
+        async loadModel(modelPath = null) {
             try {
                 this.$eventBus.$emit('loading-start');
 
+                // 创建 GLTFLoader 并配置 DRACOLoader
                 const loader = new GLTFLoader();
-                const gltf = await this.loadGLTF(loader, modelPath);
+                
+                // 设置 DRACOLoader 用于解压缩 Draco 压缩的几何体
+                const dracoLoader = new DRACOLoader();
+                // 尝试使用本地路径，如果不存在则使用CDN
+                try {
+                    dracoLoader.setDecoderPath('/draco/');
+                } catch (e) {
+                    console.warn('本地Draco解码器不可用，使用CDN');
+                    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/versioned/decoders/1.5.6/');
+                }
+                loader.setDRACOLoader(dracoLoader);
+                console.log('已配置 DRACOLoader');
+                
+                // 如果没有指定路径，从后端API获取模型
+                const finalModelPath = modelPath || '/api/model';
+                console.log('准备加载模型:', finalModelPath);
+                const gltf = await this.loadGLTF(loader, finalModelPath);
 
                 // 清除之前的模型
                 this.clearModel();
@@ -329,31 +351,53 @@ export default {
         },
 
         /**
-         * 使用Promise封装GLTF加载器
+         * 从后端API加载GLTF模型
          * @param {GLTFLoader} loader - GLTF加载器实例
-         * @param {string} path - 模型路径
+         * @param {string} path - API路径，默认为'/api/model'
          * @returns {Promise} GLTF对象
          */
-        loadGLTF(loader, path) {
-            return new Promise((resolve, reject) => {
-                console.log('开始加载GLTF文件:', path);
-                loader.load(
-                    path,
-                    (gltf) => {
-                        console.log('GLTF文件加载成功:', gltf);
-                        resolve(gltf);
-                    },
-                    (progress) => {
-                        const percent = progress.total > 0 ? (progress.loaded / progress.total) * 100 : 0;
-                        console.log('加载进度:', percent + '%', progress);
-                        this.$eventBus.$emit('loading-progress', percent);
-                    },
-                    (error) => {
-                        console.error('GLTF加载错误:', error);
-                        reject(error);
-                    }
-                );
-            });
+        async loadGLTF(loader, path = '/api/model') {
+            try {
+                this.loading = true;
+                this.error = null;
+                console.log(`开始从 ${path} 加载模型...`);
+
+                // 直接使用服务器URL加载，不使用blob URL
+                // 这样 Three.js 可以正确解析相对路径的 bin 文件
+                const fullUrl = `${window.location.origin}${path}`;
+                console.log('使用完整 URL 加载模型:', fullUrl);
+
+                // 使用 Promise 包装 GLTFLoader
+                return new Promise((resolve, reject) => {
+                    loader.load(
+                        fullUrl,
+                        (gltf) => {
+                            console.log('GLTF文件加载成功:', gltf);
+                            
+                            this.loading = false;
+                            resolve(gltf);
+                        },
+                        (progress) => {
+                            const percent = progress.total > 0 ? (progress.loaded / progress.total) * 100 : 0;
+                            console.log('GLTF加载进度:', percent + '%');
+                            this.$eventBus.$emit('loading-progress', percent);
+                        },
+                        (error) => {
+                            console.error('GLTF加载错误:', error);
+                            
+                            this.loading = false;
+                            this.error = `模型加载失败: ${error.message}`;
+                            reject(error);
+                        }
+                    );
+                });
+
+            } catch (error) {
+                console.error('从API获取模型失败:', error);
+                this.loading = false;
+                this.error = `获取模型失败: ${error.message}`;
+                throw error;
+            }
         },
 
         /**
@@ -2124,6 +2168,12 @@ export default {
 
             this.clearCoordinateAxis();
             this.clearClipping();
+
+            // 清理 blob URL
+            if (this.currentBlobUrl) {
+                URL.revokeObjectURL(this.currentBlobUrl);
+                this.currentBlobUrl = null;
+            }
 
             // 清理几何体和材质
             this.originalMaterials.forEach(material => material.dispose());

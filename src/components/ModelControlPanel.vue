@@ -195,6 +195,7 @@ export default {
         this.$eventBus.$on('clipping-changed', this.onClippingChanged);
         this.$eventBus.$on('section-generated', this.onSectionGenerated);
         this.$eventBus.$on('control-target-changed', this.onControlTargetChanged);
+
     },
     beforeDestroy() {
         // 清理事件监听器
@@ -266,6 +267,8 @@ export default {
          */
         loadModel() {
             this.$eventBus.$emit('load-model');
+            this.showWireframe = true;
+            this.toggleWireframe(); // 初始化边缘线显示状态
         },
 
         /**
