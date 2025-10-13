@@ -27,7 +27,7 @@ app = Flask(
     static_folder=str(DIST_DIR),     # 直接指向 dist 目录
     static_url_path=""               # 使静态文件在根路径下可访问
 )
-CORS(app)  # 方便联调；生产环境建议配置白名单
+CORS(app)  
 
 # --------------- 工具 ---------------
 def get_local_ip() -> str:
