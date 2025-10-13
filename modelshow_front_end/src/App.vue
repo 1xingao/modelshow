@@ -34,10 +34,9 @@
             <!-- 剖面模态窗口 -->
             <SectionModal />
 
-            <!-- 其他页面（预留） -->
-            <div v-show="currentTab === 'upload'" class="page-placeholder">
-                <h2>数据上传功能</h2>
-                <p>此功能正在开发中...</p>
+            <!-- 数据上传页面 -->
+            <div v-show="currentTab === 'upload'" class="upload-page">
+                <BoreholeUpload @data-ready="handleDataReady" />
             </div>
 
             <div v-show="currentTab === 'process'" class="page-placeholder">
@@ -58,6 +57,7 @@ import AppHeader from './components/AppHeader.vue'
 import ModelControlPanel from './components/ModelControlPanel.vue'
 import ModelViewer from './components/ModelViewer.vue'
 import SectionModal from './components/SectionModal.vue'
+import BoreholeUpload from './components/BoreholeUpload.vue'
 
 export default {
     name: 'App',
@@ -65,7 +65,8 @@ export default {
         AppHeader,
         ModelControlPanel,
         ModelViewer,
-        SectionModal
+        SectionModal,
+        BoreholeUpload
     },
     data() {
         return {
@@ -125,6 +126,24 @@ export default {
         onLoadingError(errorMsg) {
             this.errorMessage = errorMsg;
             this.loading = false;
+        },
+
+        /**
+         * 处理钻孔数据准备完成事件
+         * @param {Object} dataInfo - 数据信息对象
+         */
+        handleDataReady(dataInfo) {
+            console.log('钻孔数据已准备完成:', dataInfo);
+            
+            // 可以在这里触发后续处理流程
+            // 比如切换到数据处理页面
+            this.currentTab = 'process';
+            
+            // 或者显示成功提示
+            this.$eventBus.$emit('show-notification', {
+                type: 'success',
+                message: `钻孔数据文件 "${dataInfo.file.name}" 已上传并准备完成`
+            });
         }
     }
 }
@@ -266,6 +285,13 @@ export default {
 
 .close-btn:hover {
     background-color: #0056b3;
+}
+
+/* 上传页面样式 */
+.upload-page {
+    height: calc(100vh - 60px);
+    overflow-y: auto;
+    background-color: #f5f5f5;
 }
 
 /* 响应式设计 */

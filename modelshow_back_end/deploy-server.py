@@ -5,6 +5,8 @@ import socket
 from datetime import datetime
 from pathlib import Path
 from typing import List
+import uuid
+from werkzeug.utils import secure_filename
 import src.model_build.tin_kriging_prism_model as tkpm
 
 from flask import (
@@ -21,7 +23,19 @@ MODEL_GLTF_DIR = PUBLIC_DIR / "model_gltf"
 MODEL_3DTILES_DIR = PUBLIC_DIR / "model_3dtiles" / "output_model"
 MODEL_GLTF_TEST_DIR = PUBLIC_DIR / "model_gltf_test"
 
+# 钻孔数据目录
+UPLOADS_DIR = BASE_DIR / "uploads"
+BOREHOLE_DATA_DIR = UPLOADS_DIR / "borehole_data"
+
+# 确保目录存在
+UPLOADS_DIR.mkdir(exist_ok=True)
+BOREHOLE_DATA_DIR.mkdir(exist_ok=True)
+
 SEARCH_DIRS = [MODEL_GLTF_DIR, MODEL_3DTILES_DIR, MODEL_GLTF_TEST_DIR]
+
+# 允许上传的文件类型
+ALLOWED_EXTENSIONS = {'.txt', '.xlsx', '.xls', '.csv'}
+MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
 
 app = Flask(
     __name__,
@@ -81,6 +95,31 @@ def set_bin_headers(resp, size: int | None = None):
     if size is not None:
         resp.headers["Content-Length"] = str(size)
     return resp
+
+def allowed_file(filename):
+    """检查文件类型是否允许"""
+    return Path(filename).suffix.lower() in ALLOWED_EXTENSIONS
+
+def save_uploaded_file(file):
+    """保存上传的文件"""
+    if file and allowed_file(file.filename):
+        # 生成安全的文件名
+        filename = secure_filename(file.filename)
+        # 添加时间戳避免重名
+        name, ext = os.path.splitext(filename)
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        unique_filename = f"{timestamp}{ext}.{name}"
+        
+        # 保存文件
+        file_path = BOREHOLE_DATA_DIR / unique_filename
+        file.save(str(file_path))
+
+        return file_path, unique_filename
+    return None, None
+
+
+
+
 
 # --------------- API ---------------
 @app.route("/api/health", methods=["GET"])
@@ -177,6 +216,93 @@ def api_gltf_buffer(id: str):
             return set_bin_headers(resp, st.st_size)
     return json_response({"error": f"二进制文件不存在: {fname}"}, status=404)
 
+# 地层坐标数据上传API
+@app.route("/api/stratum/upload", methods=["POST"])
+def upload_stratum_data():
+    """上传地层坐标数据文件"""
+    print("收到地层坐标数据上传请求")
+    
+    # 检查是否有文件
+    if 'file' not in request.files:
+        return json_response({"success": False, "message": "未选择文件"}, status=400)
+    
+    file = request.files['file']
+    if file.filename == '':
+        return json_response({"success": False, "message": "未选择文件"}, status=400)
+    
+    # 检查文件大小
+    file.seek(0, 2)  # 移动到文件末尾
+    file_size = file.tell()
+    file.seek(0)     # 重置文件指针
+    
+    if file_size > MAX_FILE_SIZE:
+        return json_response({
+            "success": False, 
+            "message": f"文件大小超过限制 ({MAX_FILE_SIZE // (1024*1024)}MB)"
+        }, status=400)
+    
+    try:
+        # 保存文件
+        file_path, unique_filename = save_uploaded_file(file)
+        if not file_path:
+            return json_response({"success": False, "message": "文件类型不支持"}, status=400)
+        
+        print(f"文件已保存: {file_path}")
+        
+        # 获取文件信息
+        file_ext = Path(file_path).suffix.lower()
+        file_stat = file_path.stat()
+        
+        response_data = {
+            "success": True,
+            "message": "文件上传成功",
+            "filename": unique_filename,
+            "file_path": str(file_path),
+            "file_size": file_stat.st_size,
+            "file_type": file_ext,
+            "upload_time": datetime.fromtimestamp(file_stat.st_mtime).isoformat()
+        }
+        
+        print(f"上传成功: {unique_filename}")
+        return json_response(response_data, status=200)
+        
+    except Exception as e:
+        print(f"上传处理错误: {e}")
+        return json_response({
+            "success": False, 
+            "message": f"处理文件时发生错误: {str(e)}"
+        }, status=500)
+
+@app.route("/api/stratum/files", methods=["GET"])
+def get_stratum_files():
+    """获取已上传的地层坐标数据文件列表"""
+    try:
+        files = []
+        if BOREHOLE_DATA_DIR.exists():
+            for file_path in BOREHOLE_DATA_DIR.glob("*"):
+                if file_path.is_file() and not file_path.name.endswith('.processed.csv'):
+                    stat = file_path.stat()
+                    files.append({
+                        "filename": file_path.name,
+                        "size": stat.st_size,
+                        "upload_time": datetime.fromtimestamp(stat.st_mtime).isoformat(),
+                        "file_type": file_path.suffix.lower()
+                    })
+        
+        return json_response({
+            "success": True,
+            "files": sorted(files, key=lambda x: x['upload_time'], reverse=True)
+        })
+        
+    except Exception as e:
+        print(f"获取文件列表错误: {e}")
+        return json_response({
+            "success": False,
+            "message": f"获取文件列表失败: {str(e)}"
+        }, status=500)
+
+
+
 # --------------- 中间件 ---------------
 @app.before_request
 def handle_request():
@@ -253,11 +379,12 @@ if __name__ == "__main__":
     # 友好启动提示
     print("=" * 60)
     print("🚀 ModelShow Flask 服务器已启动")
-    print(f"🌐 本地访问:    http://localhost:5000")
-    print(f"🌐 局域网访问:  http://{get_local_ip()}:5000")
-    print(f"📊 模型API:     http://{get_local_ip()}:5000/api/model")
-    print(f"🏥 健康检查:    http://{get_local_ip()}:5000/api/health")
-    print(f"📁 模型列表:    http://{get_local_ip()}:5000/api/models")
+    print(f"🌐 本地访问:    http://localhost:3000")
+    print(f"🌐 局域网访问:  http://{get_local_ip()}:3000")
+    print(f"📊 模型API:     http://{get_local_ip()}:3000/api/model")
+    print(f"🏥 健康检查:    http://{get_local_ip()}:3000/api/health")
+    print(f"📁 模型列表:    http://{get_local_ip()}:3000/api/models")
+    print(f"📤 钻孔上传:    http://{get_local_ip()}:3000/api/boreholes/upload")
     print("=" * 60)
 
     # 环境检查
@@ -276,4 +403,4 @@ if __name__ == "__main__":
     else:
         print("⚠️  警告: public/model_gltf 目录不存在")
 
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=3000, debug=True)

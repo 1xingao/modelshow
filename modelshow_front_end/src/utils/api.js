@@ -88,5 +88,45 @@ export const modelAPI = {
     }
 };
 
+// 地层坐标数据相关 API
+export const stratumAPI = {
+    // 上传地层坐标数据文件
+    async uploadData(formData, onProgress) {
+        try {
+            const response = await apiClient.post('/api/stratum/upload', formData, {
+                headers: {
+                    'Content-Type': 'multipart/form-data'
+                },
+                timeout: 60000, // 60秒超时
+                onUploadProgress: (progressEvent) => {
+                    if (progressEvent.lengthComputable && onProgress) {
+                        const percent = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+                        onProgress(percent);
+                    }
+                }
+            });
+            return response.data;
+        } catch (error) {
+            console.error('文件上传失败:', error.response || error);
+            throw new Error(`上传失败: ${error.response?.data?.message || error.message}`);
+        }
+    },
+
+    // 获取上传的文件列表
+    async getFileList() {
+        try {
+            const response = await apiClient.get('/api/stratum/files');
+            return response.data;
+        } catch (error) {
+            console.error('获取文件列表失败:', error.response || error);
+            throw new Error(`获取文件列表失败: ${error.message}`);
+        }
+    }
+};
+
+// 导出便捷函数
+export const uploadStratumData = stratumAPI.uploadData;
+export const getStratumFiles = stratumAPI.getFileList;
+
 // 导出默认的 axios 实例
 export default apiClient;
