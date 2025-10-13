@@ -5,6 +5,7 @@ import socket
 from datetime import datetime
 from pathlib import Path
 from typing import List
+import src.model_build.tin_kriging_prism_model as tkpm
 
 from flask import (
     Flask, jsonify, request, send_from_directory,
