@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from pykrige.ok import OrdinaryKriging
-from build_block_pyvista import Block
+from .build_block_pyvista import Block
 import matplotlib.pyplot as plt
 from scipy.interpolate import griddata
 
