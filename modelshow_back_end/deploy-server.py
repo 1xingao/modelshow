@@ -42,7 +42,10 @@ app = Flask(
     static_folder=str(DIST_DIR),     # 直接指向 dist 目录
     static_url_path=""               # 使静态文件在根路径下可访问
 )
-CORS(app)  
+
+# 配置CORS支持局域网访问
+CORS(app, origins="*", methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"], 
+     allow_headers=["Content-Type", "Authorization"])  
 
 # --------------- 工具 ---------------
 def get_local_ip() -> str:
@@ -116,10 +119,6 @@ def save_uploaded_file(file):
 
         return file_path, unique_filename
     return None, None
-
-
-
-
 
 # --------------- API ---------------
 @app.route("/api/health", methods=["GET"])
@@ -384,7 +383,7 @@ if __name__ == "__main__":
     print(f"📊 模型API:     http://{get_local_ip()}:3000/api/model")
     print(f"🏥 健康检查:    http://{get_local_ip()}:3000/api/health")
     print(f"📁 模型列表:    http://{get_local_ip()}:3000/api/models")
-    print(f"📤 钻孔上传:    http://{get_local_ip()}:3000/api/boreholes/upload")
+    print(f"📤 地层上传:    http://{get_local_ip()}:3000/api/stratum/upload")
     print("=" * 60)
 
     # 环境检查

@@ -6,21 +6,32 @@ console.log('环境变量检查:');
 console.log('NODE_ENV:', process.env.NODE_ENV);
 console.log('VUE_APP_API_BASE_URL:', process.env.VUE_APP_API_BASE_URL);
 
+// 动态获取API基础URL
+function getApiBaseUrl() {
+    // 如果是开发环境且在localhost，使用localhost
+    if (process.env.NODE_ENV === 'development' && window.location.hostname === 'localhost') {
+        return 'http://localhost:3000';
+    }
+    
+    // 其他情况使用当前页面的主机名（支持局域网访问）
+    const protocol = window.location.protocol;
+    const hostname = window.location.hostname;
+    return `${protocol}//${hostname}:3000`;
+}
+
 // 创建 axios 实例
 const apiClient = axios.create({
-    // 完全强制使用本地地址，忽略所有环境变量
-    baseURL: 'http://localhost:3000',
+    baseURL: getApiBaseUrl(),
     timeout: 30000, // 30秒超时
     headers: {
         'Content-Type': 'application/json',
     }
 });
 
-// 再次确保baseURL是正确的
-apiClient.defaults.baseURL = 'http://localhost:3000';
-
 console.log('API客户端配置:');
-console.log('baseURL:', apiClient.defaults.baseURL);
+console.log('当前页面hostname:', window.location.hostname);
+console.log('当前页面protocol:', window.location.protocol);
+console.log('计算出的baseURL:', apiClient.defaults.baseURL);
 console.log('完整URL示例:', apiClient.defaults.baseURL + '/api/model');
 
 // 请求拦截器

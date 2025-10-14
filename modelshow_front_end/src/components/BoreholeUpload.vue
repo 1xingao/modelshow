@@ -32,7 +32,7 @@
                     <div v-else class="file-info">
                         <div class="file-details">
                             <i class="file-icon">📊</i>
-                            <div class="file-meta">
+                            <div class="file-meta">11
                                 <h3>{{ selectedFile.name }}</h3>
                                 <p>大小: {{ formatFileSize(selectedFile.size) }}</p>
                                 <p>类型: {{ getFileType(selectedFile.name) }}</p>
@@ -61,62 +61,32 @@
                 <!-- 上传状态消息 -->
                 <div v-if="uploadMessage" class="upload-message" :class="uploadStatus">
                     <p>{{ uploadMessage }}</p>
-                    <button v-if="uploadStatus === 'success'" class="btn btn-link" @click="viewData">
-                        查看数据
-                    </button>
                 </div>
-            </div>
 
-            <!-- 数据预览区域 -->
-            <div v-if="previewData" class="preview-section">
-                <div class="preview-header">
-                    <h3>数据预览</h3>
-                    <div class="preview-meta">
-                        <span class="data-count">显示前 {{ Math.min(previewData.length, 100) }} 行数据</span>
-                        <span class="format-badge stratum">地层坐标格式</span>
-                    </div>
-                    
-                    <!-- 地层坐标统计信息 -->
-                    <div v-if="Object.keys(formatStats).length > 0" class="format-stats">
-                        <div class="stratum-stats">
-                            <p><strong>地层类型：</strong>{{ formatStats.stratum_types }} 种</p>
-                            <p><strong>坐标范围：</strong>
-                                X: {{ formatStats.coordinate_ranges?.x_min?.toFixed(2) }} ~ {{ formatStats.coordinate_ranges?.x_max?.toFixed(2) }},
-                                Y: {{ formatStats.coordinate_ranges?.y_min?.toFixed(2) }} ~ {{ formatStats.coordinate_ranges?.y_max?.toFixed(2) }},
-                                Z: {{ formatStats.coordinate_ranges?.z_min?.toFixed(2) }} ~ {{ formatStats.coordinate_ranges?.z_max?.toFixed(2) }}
-                            </p>
+                <!-- 上传成功信息 -->
+                <div v-if="uploadResult && uploadStatus === 'success'" class="upload-result">
+                    <h4>上传信息</h4>
+                    <div class="result-details">
+                        <div class="result-item">
+                            <label>文件名:</label>
+                            <span>{{ uploadResult.filename }}</span>
                         </div>
-                    </div>
-                </div>
-
-                <div class="table-container">
-                    <table class="data-table">
-                        <thead>
-                            <tr>
-                                <th v-for="column in previewColumns" :key="column">
-                                    {{ column }}
-                                </th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr v-for="(row, index) in previewData.slice(0, 100)" :key="index">
-                                <td v-for="column in previewColumns" :key="column">
-                                    {{ row[column] || '-' }}
-                                </td>
-                            </tr>
-                        </tbody>
-                    </table>
-                </div>
-
-                <div class="preview-footer">
-                    <p>共 {{ previewData.length }} 行数据</p>
-                    <div class="preview-actions">
-                        <button class="btn btn-primary" @click="processData">
-                            处理数据
-                        </button>
-                        <button class="btn btn-secondary" @click="showSampleMenu">
-                            下载模板
-                        </button>
+                        <div class="result-item">
+                            <label>文件大小:</label>
+                            <span>{{ formatFileSize(uploadResult.file_size) }}</span>
+                        </div>
+                        <div class="result-item">
+                            <label>文件类型:</label>
+                            <span>{{ getFileTypeDisplay(uploadResult.file_type) }}</span>
+                        </div>
+                        <div class="result-item">
+                            <label>上传时间:</label>
+                            <span>{{ formatDateTime(uploadResult.upload_time) }}</span>
+                        </div>
+                        <div class="result-item">
+                            <label>文件路径:</label>
+                            <span class="file-path">{{ uploadResult.file_path }}</span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -174,10 +144,8 @@ export default {
             uploadProgress: 0,
             uploadMessage: '',
             uploadStatus: '', // success, error, warning
-            previewData: null,
-            previewColumns: [],
-            dataFormat: null, // 上传数据的实际格式
-            formatStats: {} // 格式统计信息
+            uploadResult: null, // 上传成功后的结果信息
+
         }
     },
     methods: {
@@ -269,13 +237,16 @@ export default {
                 if (response.success) {
                     this.showMessage(response.message || '文件上传成功！', 'success')
                     
-                    // 获取数据预览
-                    if (response.preview_data) {
-                        this.previewData = response.preview_data
-                        this.previewColumns = response.columns || []
-                        this.dataFormat = response.data_format || 'standard'
-                        this.formatStats = response.format_stats || {}
+                    // 保存上传结果信息
+                    this.uploadResult = {
+                        filename: response.filename,
+                        file_size: response.file_size,
+                        file_type: response.file_type,
+                        upload_time: response.upload_time,
+                        file_path: response.file_path
                     }
+                    
+                    
                 } else {
                     this.showMessage(response.message || '上传失败', 'error')
                 }
@@ -287,68 +258,6 @@ export default {
                 setTimeout(() => {
                     this.uploadProgress = 0
                 }, 2000)
-            }
-        },
-
-
-
-        processData() {
-            // 触发数据处理流程
-            this.$emit('data-ready', {
-                file: this.selectedFile,
-                data: this.previewData,
-                columns: this.previewColumns
-            })
-            
-            this.showMessage('数据已准备好进行处理', 'success')
-        },
-
-        downloadSample(format = 'txt') {
-            const sampleData = [
-                ['含砾砂岩层', 3029.43, -2982.37, -146.84],
-                ['含砾砂岩层', 3035.35, -2016.46, -152.67],
-                ['含砾砂岩层', 2987.21, -3001.15, -149.35],
-                ['地表层', 1042.9, 2968, 26.21],
-                ['地表层', 2077.9, -3037.73, -3.04],
-                ['地表层', 1156.32, 2845.67, 28.45],
-                ['砂质泥岩层', 2654.18, -1879.42, -178.92],
-                ['砂质泥岩层', 3201.67, -2345.78, -185.33],
-                ['砂质泥岩层', 2876.54, -2123.98, -181.67]
-            ]
-
-            let content, filename, mimeType
-
-            if (format === 'csv') {
-                // CSV格式
-                content = sampleData.map(row => row.join(',')).join('\n')
-                filename = '地层坐标数据模板.csv'
-                mimeType = 'text/csv;charset=utf-8;'
-            } else {
-                // TXT格式（默认）
-                content = sampleData.map(row => row.join(' ')).join('\n')
-                filename = '地层坐标数据模板.txt'
-                mimeType = 'text/plain;charset=utf-8;'
-            }
-
-            // 下载文件
-            const blob = new Blob([content], { type: mimeType })
-            const link = document.createElement('a')
-            const url = URL.createObjectURL(blob)
-            link.setAttribute('href', url)
-            link.setAttribute('download', filename)
-            document.body.appendChild(link)
-            link.click()
-            document.body.removeChild(link)
-        },
-
-        showSampleMenu() {
-
-            // 简单的选择菜单
-            const choice = window.confirm('选择下载格式：\n确定 = TXT格式\n取消 = CSV格式')
-            if (choice) {
-                this.downloadSample('txt')
-            } else {
-                this.downloadSample('csv')
             }
         },
 
@@ -371,13 +280,44 @@ export default {
             return types[ext] || '未知格式'
         },
 
+        getFileTypeDisplay(fileType) {
+            // fileType 是后端返回的文件扩展名，如 '.txt', '.xlsx'
+            const ext = fileType.replace('.', '').toLowerCase()
+            const types = {
+                'txt': '地层坐标文件 (.txt)',
+                'xlsx': 'Excel 工作簿 (.xlsx)',
+                'xls': 'Excel 97-2003 (.xls)',
+                'csv': 'CSV 文件 (.csv)'
+            }
+            return types[ext] || `${fileType.toUpperCase()} 文件`
+        },
+
+        formatDateTime(isoString) {
+            if (!isoString) return '-'
+            try {
+                const date = new Date(isoString)
+                return date.toLocaleString('zh-CN', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                })
+            } catch (e) {
+                return isoString
+            }
+        },
+
         showMessage(message, status) {
             this.uploadMessage = message
             this.uploadStatus = status
             
             if (status === 'success') {
                 setTimeout(() => {
-                    this.clearMessages()
+                    // 只清除消息，保留上传结果信息
+                    this.uploadMessage = ''
+                    this.uploadStatus = ''
                 }, 5000)
             }
         },
@@ -385,6 +325,7 @@ export default {
         clearMessages() {
             this.uploadMessage = ''
             this.uploadStatus = ''
+            this.uploadResult = null
         }
     }
 }
@@ -592,6 +533,63 @@ export default {
     background: #fff3cd;
     border: 1px solid #ffeaa7;
     color: #856404;
+}
+
+.upload-result {
+    margin-top: 20px;
+    padding: 20px;
+    border: 1px solid #d1ecf1;
+    border-radius: 8px;
+    background: #f8f9fa;
+}
+
+.upload-result h4 {
+    margin: 0 0 15px 0;
+    color: #333;
+    font-size: 16px;
+    border-bottom: 1px solid #dee2e6;
+    padding-bottom: 8px;
+}
+
+.result-details {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.result-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid #eee;
+}
+
+.result-item:last-child {
+    border-bottom: none;
+}
+
+.result-item label {
+    font-weight: 600;
+    color: #495057;
+    min-width: 80px;
+}
+
+.result-item span {
+    color: #6c757d;
+    text-align: right;
+    flex: 1;
+    margin-left: 15px;
+}
+
+.result-item .file-path {
+    font-family: monospace;
+    font-size: 12px;
+    background: #f8f9fa;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid #e9ecef;
+    word-break: break-all;
 }
 
 .preview-section {
