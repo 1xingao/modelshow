@@ -79,7 +79,6 @@ class Block:
         mesh.clean(inplace=True)
         return mesh
 
-
     def execute(self):
         self.visualization_block()
 
@@ -124,59 +123,13 @@ class Block:
         plotter.add_axes()
         plotter.show_grid(color='black') 
 
-        window_title = title or f'{len(mesh_list)+1}层地层体块模型(PyVista)'
-        if screenshot_path:
-            plotter.show(title=window_title, screenshot=screenshot_path, auto_close=True)
-        else:
-            plotter.show(title=window_title)
+        # 后端环境不需要展示只保存
+        # window_title = title or f'{len(mesh_list)+1}层地层体块模型(PyVista)'
+        # if screenshot_path:
+        #     plotter.show(title=window_title, screenshot=screenshot_path, auto_close=True)
+        # else:
+        #     plotter.show(title=window_title)
         
-
-    def split_block(self,main_xy,another_xy):
-        layer_list = self.generate_layers_from_xy(main_xy)
-        another_layer_list = self.generate_layers_from_xy(another_xy)
-        # 构层块体
-        block_list = []
-        for i in range(len(layer_list)-1):
-
-            blocks1 = self.build_prism_blocks(layer_list[i], layer_list[i+1])
-            block_list.append(blocks1)
-
-        another_block_list = []
-        for i in range(len(another_layer_list)-1):
-            
-            blocks1 = self.build_prism_blocks(another_layer_list[i], another_layer_list[i+1])
-            another_block_list.append(blocks1)
-
-        mesh_list = []
-        # 创建 PyVista 网格
-        for i in range(len(block_list)):
-            mesh = self.create_pyvista_mesh_from_blocks(block_list[i])
-            mesh_list.append(mesh)
-
-        another_mesh_list = []
-        # 创建 PyVista unvisable 网格
-        for i in range(len(another_block_list)):
-            mesh = self.create_pyvista_mesh_from_blocks(another_block_list[i])
-            another_mesh_list.append(mesh)
-
-        # 可视化
-        plotter = pv.Plotter()
-        plotter.add_mesh(mesh_list[2], color='lightcoral', opacity=1, show_edges=True, label='layer2-Lower')
-        plotter.add_mesh(mesh_list[1], color='lightskyblue', opacity=1, show_edges=True, label='layer1-layer2')
-        plotter.add_mesh(mesh_list[0], color='lightgreen', opacity=1, show_edges=True, label='Upper-layer1')
-
-        plotter.add_mesh(another_mesh_list[2], color='lightcoral', opacity=0.02,  label='layer2-Lower_un')
-        plotter.add_mesh(another_mesh_list[1], color='lightskyblue', opacity=0.02, label='layer1-layer2_un')
-        plotter.add_mesh(another_mesh_list[0], color='lightgreen', opacity=0.02,  label='Upper-layer1_un')
-        plotter.add_legend()
-        
-        plotter.add_axes()
-        plotter.show_grid()
-        plotter.show(title=f'{len(mesh_list)+1}层地层体块模型(PyVista)')
-        
-        # mesh_list[-1].save('upper_layer.obj')
-        # mesh_list[-2].save('lower_layer.obj')
-        # mesh_list[-3].save('middle_layer.obj')
 
     def export_model(self, output_path="model.vtm"):
         """
@@ -440,29 +393,7 @@ class Block:
             print("请确保已安装py3dtiles库：pip install py3dtiles")
 
 if __name__ == "__main__":
-    # 创建示例数据
-    # xy = np.array([[0, 0], [1, 0], [0.5, 1], [1.5, 1]])
-    # z_list = [np.array([0, 0, 0, 0]), 
-    #           np.array([1, 1, 1, 1]), 
-    #           np.array([2, 2, 2, 2])]
-    # layer_names = ['表土层', '砂土层', '粘土层']
-    
-    # builder = Block(xy=xy, z_list=z_list, layer_names=layer_names)
-    
-    # # 生成可视化
-    # builder.visualization_block(title='地质体三维模型')
-    
-    # # 导出VTM格式
-    # builder.export_model("output_model.vtm")
-    
-    # # 导出GLTF格式（使用Trimesh，自动修正90度旋转）
-    # builder.export_to_gltf_trimesh("output_model.gltf", rotate_axes=True)
-    
-    # # 导出3DTiles格式（用于Cesium等Web 3D应用，自动修正90度旋转）
-    # # 可以指定地理坐标，例如：[116.0, 39.0, 0] 表示北京
-    # builder.export_to_3dtiles("3dtiles_output", center_coords=[116.0, 39.0, 0], rotate_axes=True)
-    
-    # 请替换为你的实际数据
+
     print("请使用实际的 xy 坐标和 z_list 数据来创建 Block 实例")
     print("支持的导出格式:")
     print("1. VTM格式: builder.export_model('model.vtm')")
