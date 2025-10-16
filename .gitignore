@@ -2,6 +2,7 @@
 node_modules
 dist
 __pycache__
+uploads
 
 # local env files
 .env.local

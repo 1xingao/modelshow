@@ -39,9 +39,9 @@
                 <BoreholeUpload @data-ready="handleDataReady" />
             </div>
 
-            <div v-show="currentTab === 'process'" class="page-placeholder">
-                <h2>数据处理功能</h2>
-                <p>此功能正在开发中...</p>
+            <!-- 数据处理页面 -->
+            <div v-show="currentTab === 'process'" class="process-page">
+                <DataProcessor />
             </div>
 
             <div v-show="currentTab === 'settings'" class="page-placeholder">
@@ -58,6 +58,7 @@ import ModelControlPanel from './components/ModelControlPanel.vue'
 import ModelViewer from './components/ModelViewer.vue'
 import SectionModal from './components/SectionModal.vue'
 import BoreholeUpload from './components/BoreholeUpload.vue'
+import DataProcessor from './components/DataProcessor.vue'
 
 export default {
     name: 'App',
@@ -66,7 +67,8 @@ export default {
         ModelControlPanel,
         ModelViewer,
         SectionModal,
-        BoreholeUpload
+        BoreholeUpload,
+        DataProcessor
     },
     data() {
         return {
@@ -167,8 +169,8 @@ export default {
 .main-content {
     padding-top: 60px;
     /* header高度 */
-    height: 100vh;
-    overflow: hidden;
+    min-height: calc(100vh - 60px);
+    overflow-y: auto;
 }
 
 .model-page {
@@ -199,6 +201,13 @@ export default {
 .page-placeholder p {
     color: #6c757d;
     font-size: 16px;
+}
+
+/* 数据处理页面 */
+.process-page {
+    height: calc(100vh - 60px);
+    overflow-y: auto;
+    background-color: #f5f5f5;
 }
 
 /* 加载状态覆盖层 */

@@ -96,6 +96,17 @@ export const modelAPI = {
             console.warn('API连接检查失败:', error.message);
             return false;
         }
+    },
+
+    // 生成地质模型
+    async generateGeological(data) {
+        try {
+            const response = await apiClient.post('/api/model/generate', data);
+            return response.data;
+        } catch (error) {
+            console.error('生成地质模型失败:', error.response || error);
+            throw new Error(`生成模型失败: ${error.response?.data?.message || error.message}`);
+        }
     }
 };
 
@@ -132,12 +143,25 @@ export const stratumAPI = {
             console.error('获取文件列表失败:', error.response || error);
             throw new Error(`获取文件列表失败: ${error.message}`);
         }
+    },
+
+    // 获取地层坐标数据内容
+    async getData(filename) {
+        try {
+            const response = await apiClient.get(`/api/stratum/data/${encodeURIComponent(filename)}`);
+            return response.data;
+        } catch (error) {
+            console.error('获取地层数据失败:', error.response || error);
+            throw new Error(`获取数据失败: ${error.response?.data?.message || error.message}`);
+        }
     }
 };
 
 // 导出便捷函数
 export const uploadStratumData = stratumAPI.uploadData;
 export const getStratumFiles = stratumAPI.getFileList;
+export const getStratumData = stratumAPI.getData;
+export const generateGeologicalModel = modelAPI.generateGeological;
 
 // 导出默认的 axios 实例
 export default apiClient;

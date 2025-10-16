@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import List
 import uuid
 from werkzeug.utils import secure_filename
+import pandas as pd
 import src.model_build.tin_kriging_prism_model as tkpm
 
 from flask import (
@@ -119,6 +120,73 @@ def save_uploaded_file(file):
 
         return file_path, unique_filename
     return None, None
+
+def read_stratum_from_excel_csv(file_path):
+    """读取Excel/CSV格式的地层坐标数据"""
+    try:
+        file_ext = Path(file_path).suffix.lower()
+        
+        # 读取文件
+        if file_ext == '.csv':
+            # 尝试不同的编码读取CSV文件
+            for encoding in ['utf-8', 'gbk', 'gb2312', 'utf-8-sig']:
+                try:
+                    df = pd.read_csv(file_path, encoding=encoding, header=None)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            else:
+                # 如果所有编码都失败，使用默认编码并忽略错误
+                df = pd.read_csv(file_path, encoding='utf-8', errors='ignore', header=None)
+        
+        elif file_ext in ['.xlsx', '.xls']:
+            df = pd.read_excel(file_path, header=None)
+        else:
+            print(f"不支持的文件格式: {file_ext}")
+            return []
+        
+        # 删除完全空白的行
+        df = df.dropna(how='all')
+        
+        # 如果没有足够的列，返回空数据
+        if df.empty or df.shape[1] < 4:
+            print(f"文件数据不完整，列数: {df.shape[1] if not df.empty else 0}")
+            return []
+        
+        # 只取前4列
+        df = df.iloc[:, :4]
+        df.columns = ['stratum_name', 'x_coord', 'y_coord', 'z_coord']
+        
+        # 转换数据格式
+        data = []
+        for index, row in df.iterrows():
+            try:
+                stratum_name = str(row['stratum_name']).strip()
+                # 跳过空的或无效的地层名称
+                if not stratum_name or stratum_name.lower() in ['nan', 'none', '']:
+                    continue
+                    
+                x_coord = float(row['x_coord'])
+                y_coord = float(row['y_coord'])
+                z_coord = float(row['z_coord'])
+                
+                data.append({
+                    'stratum_name': stratum_name,
+                    'x_coord': x_coord,
+                    'y_coord': y_coord,
+                    'z_coord': z_coord
+                })
+            except (ValueError, TypeError) as e:
+                # 静默跳过无法转换的行，但记录日志
+                print(f"跳过第{index+1}行数据转换错误: {e}, 数据: {row.to_dict()}")
+                continue
+        
+        print(f"成功读取 {len(data)} 条地层坐标数据")
+        return data
+        
+    except Exception as e:
+        print(f"读取Excel/CSV地层坐标数据错误: {e}")
+        return []
 
 # --------------- API ---------------
 @app.route("/api/health", methods=["GET"])
@@ -300,7 +368,108 @@ def get_stratum_files():
             "message": f"获取文件列表失败: {str(e)}"
         }, status=500)
 
+@app.route("/api/stratum/data/<filename>", methods=["GET"])
+def get_stratum_data(filename):
+    """读取地层坐标数据文件内容"""
+    try:
+        file_path = BOREHOLE_DATA_DIR / filename
+        if not file_path.exists():
+            return json_response({
+                "success": False,
+                "message": "文件不存在"
+            }, status=404)
 
+        # 读取文件内容
+        data = []
+        file_ext = file_path.suffix.lower()
+        
+        if file_ext == '.txt':
+            # 读取TXT文件
+            with open(file_path, 'r', encoding='utf-8') as f:
+                for line_num, line in enumerate(f, 1):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.split()
+                    if len(parts) >= 4:
+                        try:
+                            data.append({
+                                'stratum_name': parts[0],
+                                'x_coord': float(parts[1]),
+                                'y_coord': float(parts[2]),
+                                'z_coord': float(parts[3])
+                            })
+                        except (ValueError, IndexError):
+                            continue
+        
+        elif file_ext in ['.xlsx', '.xls', '.csv']:
+            # 读取Excel/CSV文件
+            data = read_stratum_from_excel_csv(file_path)
+            if not data:
+                return json_response({
+                    "success": False,
+                    "message": "Excel/CSV文件读取失败或格式不正确"
+                }, status=400)
+        else:
+            return json_response({
+                "success": False,
+                "message": f"不支持的文件格式: {file_ext}"
+            }, status=400)
+            
+        return json_response({
+            "success": True,
+            "data": data,
+            "filename": filename,
+            "total_points": len(data),
+            "strata_types": list(set([item['stratum_name'] for item in data]))
+        })
+
+    except Exception as e:
+        print(f"读取地层数据错误: {e}")
+        return json_response({
+            "success": False,
+            "message": f"读取文件失败: {str(e)}"
+        }, status=500)
+
+@app.route("/api/model/generate", methods=["POST"])
+def generate_geological_model():
+    """生成地质模型（暂时保留接口）"""
+    try:
+        data = request.get_json()
+        filename = data.get('filename')
+        
+        if not filename:
+            return json_response({
+                "success": False,
+                "message": "请指定地层坐标文件名"
+            }, status=400)
+        
+        file_path = BOREHOLE_DATA_DIR / filename
+        if not file_path.exists():
+            return json_response({
+                "success": False,
+                "message": "指定的文件不存在"
+            }, status=404)
+        
+        # TODO: 调用实际的模型生成函数
+        # result = tkpm.generate_model(str(file_path))
+        
+        print(f"🏗️ 开始生成地质模型，使用文件: {filename}")
+        
+        # 暂时返回模拟结果
+        return json_response({
+            "success": True,
+            "message": "地质模型生成请求已接收（功能开发中）",
+            "filename": filename,
+            "status": "pending"
+        })
+        
+    except Exception as e:
+        print(f"生成地质模型错误: {e}")
+        return json_response({
+            "success": False,
+            "message": f"生成模型失败: {str(e)}"
+        }, status=500)
 
 # --------------- 中间件 ---------------
 @app.before_request
@@ -375,7 +544,7 @@ def serve_spa(path):
 
 # --------------- 启动 ---------------
 if __name__ == "__main__":
-    # 友好启动提示
+
     print("=" * 60)
     print("🚀 ModelShow Flask 服务器已启动")
     print(f"🌐 本地访问:    http://localhost:3000")
@@ -384,6 +553,9 @@ if __name__ == "__main__":
     print(f"🏥 健康检查:    http://{get_local_ip()}:3000/api/health")
     print(f"📁 模型列表:    http://{get_local_ip()}:3000/api/models")
     print(f"📤 地层上传:    http://{get_local_ip()}:3000/api/stratum/upload")
+    print(f"📋 文件列表:    http://{get_local_ip()}:3000/api/stratum/files")
+    print(f"📄 数据读取:    http://{get_local_ip()}:3000/api/stratum/data/<filename>")
+    print(f"🏗️ 模型生成:    http://{get_local_ip()}:3000/api/model/generate")
     print("=" * 60)
 
     # 环境检查
@@ -402,4 +574,4 @@ if __name__ == "__main__":
     else:
         print("⚠️  警告: public/model_gltf 目录不存在")
 
-    app.run(host="0.0.0.0", port=3000, debug=True)
+    app.run(host="0.0.0.0", port=3000, debug=False)
